@@ -280,7 +280,7 @@ body {
     min-height: 100vh;
 }
 
-/* Sidebar - Modern Design with Gradient, Rounded Corners & Animations */
+/* Sidebar - Modern Design with Gradient, Rounded Corners - Fast Transitions */
 .sidebar {
     width: 280px;
     background: linear-gradient(180deg, var(--sidebar-gradient-start, var(--primary-black)) 0%, var(--sidebar-gradient-end, var(--accent-gray)) 100%);
@@ -292,47 +292,38 @@ body {
     height: 100vh;
     overflow-y: auto;
     overflow-x: hidden;
-    transition: width 0.25s ease-out, box-shadow 0.25s ease-out;
+    transition: width 0.1s ease, box-shadow 0.1s ease;
     z-index: 1000;
     border: none;
     border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
     box-shadow: 4px 0 30px rgba(0, 0, 0, 0.5);
-    will-change: width;
     /* Removed backdrop-filter for performance */
 }
 
-/* Sidebar hover expand functionality - disabled when clicked */
-.sidebar:not(.collapsed):hover:not(.clicked) {
-    width: 320px !important; /* Reduced width for less expansive feel, still fits "Vouchers & Analytics" */
-    transition: width 0.2s ease-out 0s; /* Faster transition for snappier feel */
+/* Sidebar hover expand functionality - fast transition, disabled when locked */
+.sidebar:not(.collapsed):hover:not(.locked) {
+    width: 320px !important;
+    transition: width 0.1s ease 0s; /* Fast transition */
 }
 
-.sidebar:not(.collapsed):hover:not(.clicked) ~ .main-content {
-    margin-left: 320px !important; /* Match sidebar hover width */
-    transition: margin-left 0.2s ease-out 0s; /* Faster transition for snappier feel */
+.sidebar:not(.collapsed):hover:not(.locked) ~ .main-content {
+    margin-left: 320px !important;
+    transition: margin-left 0.1s ease 0s; /* Fast transition */
 }
 
-/* When sidebar is clicked, maintain its width */
-.sidebar.clicked {
-    transition: width 0.2s ease-out 0s;
+/* When sidebar is locked (clicked), maintain its current width - no hover expansion */
+.sidebar.locked {
+    transition: width 0.1s ease 0s;
 }
 
-.sidebar.clicked ~ .main-content {
-    transition: margin-left 0.2s ease-out 0s;
+.sidebar.locked ~ .main-content {
+    transition: margin-left 0.1s ease 0s;
 }
 
-/* Removed force-collapsed - sidebar now closes on mouseleave instead */
-
-/* When sidebar is collapsed, expand on hover - disabled when clicked */
-.sidebar.collapsed:hover:not(.clicked) {
-    width: 280px;
-    z-index: 1001;
-    transition: width 0.25s ease-out 0s;
-}
-
-.sidebar.collapsed:hover:not(.clicked) .sidebar-header-content,
-.sidebar.collapsed:hover:not(.clicked) .nav-link-text,
-.sidebar.collapsed:hover:not(.clicked) .sidebar-title {
+/* Locked sidebar should show text if it was expanded when locked */
+.sidebar.locked:not(.collapsed) .sidebar-header-content,
+.sidebar.locked:not(.collapsed) .nav-link-text,
+.sidebar.locked:not(.collapsed) .sidebar-title {
     opacity: 1 !important;
     visibility: visible !important;
     width: auto !important;
@@ -340,10 +331,43 @@ body {
     overflow: visible !important;
     margin: initial !important;
     padding: initial !important;
-    transition: opacity 0.2s ease-out, visibility 0.2s ease-out, width 0.2s ease-out, max-width 0.2s ease-out;
 }
 
-.sidebar.collapsed:hover:not(.clicked) .nav-link {
+.sidebar.locked:not(.collapsed) .nav-link {
+    justify-content: flex-start !important;
+    padding: 10px 14px !important;
+    margin: 0 8px 4px 8px !important;
+}
+
+.sidebar.locked:not(.collapsed) .nav-link i {
+    margin-right: 12px !important;
+    width: 20px !important;
+    font-size: 16px !important;
+}
+
+/* Removed force-collapsed - sidebar now closes on mouseleave instead */
+
+/* When sidebar is collapsed, expand on hover - fast transition, disabled when locked */
+.sidebar.collapsed:hover:not(.locked) {
+    width: 280px;
+    z-index: 1001;
+    transition: width 0.1s ease 0s; /* Fast transition */
+}
+
+.sidebar.collapsed:hover:not(.locked) .sidebar-header-content,
+.sidebar.collapsed:hover:not(.locked) .nav-link-text,
+.sidebar.collapsed:hover:not(.locked) .sidebar-title {
+    opacity: 1 !important;
+    visibility: visible !important;
+    width: auto !important;
+    max-width: none !important;
+    overflow: visible !important;
+    margin: initial !important;
+    padding: initial !important;
+    transition: opacity 0.08s ease, visibility 0.08s ease; /* Very fast transitions */
+}
+
+.sidebar.collapsed:hover:not(.locked) .nav-link {
     justify-content: flex-start !important;
     padding: 10px 14px !important;
     margin: 0 8px 4px 8px !important;
@@ -352,15 +376,15 @@ body {
     height: auto !important;
 }
 
-.sidebar.collapsed:hover:not(.clicked) .nav-link i {
+.sidebar.collapsed:hover:not(.locked) .nav-link i {
     margin-right: 12px !important;
     width: 20px !important;
     font-size: 16px !important;
 }
 
-.sidebar.collapsed:hover:not(.clicked) ~ .main-content {
+.sidebar.collapsed:hover:not(.locked) ~ .main-content {
     margin-left: 280px;
-    transition: margin-left 0.25s ease-out 0s;
+    transition: margin-left 0.1s ease 0s; /* Fast transition */
 }
 
 .sidebar.collapsed {
@@ -375,7 +399,7 @@ body {
     width: 0;
     overflow: hidden;
     margin: 0;
-    transition: opacity 0.2s ease-out, visibility 0.2s ease-out, width 0.2s ease-out;
+    transition: opacity 0.08s ease, visibility 0.08s ease; /* Very fast transitions */
 }
 
 .sidebar.collapsed .nav-link {
@@ -519,7 +543,7 @@ body {
     padding: 10px 14px; /* Standard web size */
     color: var(--text-gray);
     text-decoration: none;
-    transition: background-color 0.2s ease-out, color 0.2s ease-out, transform 0.2s ease-out, box-shadow 0.2s ease-out;
+    transition: background-color 0.1s ease, color 0.1s ease; /* Minimal animation - removed transform */
     border-radius: var(--radius-lg);
     margin: 0 8px 4px 8px;
     position: relative;
@@ -528,19 +552,15 @@ body {
     overflow: visible; /* Changed from hidden to visible to show full text */
     white-space: nowrap; /* Prevent wrapping */
     min-width: fit-content; /* Ensure link fits its content */
-    will-change: transform;
 }
 
 
 /* Circle hover effect removed */
 
 .nav-link-text {
-    transition: opacity 0.2s ease-out, visibility 0.2s ease-out;
+    transition: opacity 0.1s ease, visibility 0.1s ease; /* Faster transitions */
     white-space: nowrap; /* Prevent text wrapping */
     flex-shrink: 0; /* Prevent text from shrinking */
-    overflow: visible; /* Fix overflow bug on hover */
-    max-width: none; /* Remove width restrictions */
-    will-change: opacity, visibility; /* GPU acceleration */
     overflow: visible; /* Allow text to show on hover */
     max-width: none; /* Remove width restrictions */
 }
@@ -555,14 +575,13 @@ body {
     height: 0;
     background: var(--accent-color);
     border-radius: 0 3px 3px 0;
-    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: height 0.15s ease; /* Faster, simpler transition */
 }
 
 .nav-link:hover {
     background: rgba(255, 255, 255, 0.08);
     color: var(--primary-white);
-    transform: translateX(4px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    /* Removed transform for less animation - more stable feel */
 }
 
 .nav-link:hover::before {
@@ -600,8 +619,7 @@ body {
     padding: 0;
     background: transparent;
     min-height: 100vh;
-    transition: margin-left 0.25s ease-out;
-    will-change: margin-left;
+    transition: margin-left 0.1s ease; /* Fast transition to match sidebar */
 }
 
 .sidebar.collapsed ~ .main-content {

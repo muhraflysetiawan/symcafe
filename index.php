@@ -2,17 +2,79 @@
 require_once 'config/config.php';
 require_once 'includes/tutorial.php';
 
-// Don't redirect logged-in users - they can still view the landing page
+// Function to adjust color brightness
+function adjustBrightness($hex, $percent) {
+    $hex = ltrim($hex, '#');
+    $r = hexdec(substr($hex, 0, 2));
+    $g = hexdec(substr($hex, 2, 2));
+    $b = hexdec(substr($hex, 4, 2));
+    $r = max(0, min(255, $r + ($r * $percent / 100)));
+    $g = max(0, min(255, $g + ($g * $percent / 100)));
+    $b = max(0, min(255, $b + ($b * $percent / 100)));
+    return '#' . str_pad(dechex(round($r)), 2, '0', STR_PAD_LEFT) . 
+                 str_pad(dechex(round($g)), 2, '0', STR_PAD_LEFT) . 
+                 str_pad(dechex(round($b)), 2, '0', STR_PAD_LEFT);
+}
+
+// Function to convert hex to rgba
+function hexToRgba($hex, $alpha = 1) {
+    $hex = ltrim($hex, '#');
+    $r = hexdec(substr($hex, 0, 2));
+    $g = hexdec(substr($hex, 2, 2));
+    $b = hexdec(substr($hex, 4, 2));
+    return "rgba($r, $g, $b, $alpha)";
+}
+
 $db = new Database();
 $conn = $db->getConnection();
-
-// Handle search - cafes or products
-$search_query = isset($_GET['search']) ? trim(sanitizeInput($_GET['search'])) : '';
-$search_type = isset($_GET['type']) ? sanitizeInput($_GET['type']) : 'cafe';
-$cafes = [];
-$products = [];
 $is_customer = isLoggedIn() && isset($_SESSION['user_role']) && $_SESSION['user_role'] == 'customer';
 $user_role = isLoggedIn() && isset($_SESSION['user_role']) ? $_SESSION['user_role'] : null;
+
+// Get theme colors - try to get from logged-in user's cafe, or use first cafe, or defaults
+$theme_colors = [
+    'primary' => '#FFFFFF',
+    'secondary' => '#252525',
+    'accent' => '#3A3A3A'
+];
+
+try {
+    $cafe_id = null;
+    if (isLoggedIn() && function_exists('getCafeId')) {
+        $cafe_id = getCafeId();
+    }
+    
+    // If no cafe_id from logged in user, get first cafe's theme
+    if (!$cafe_id) {
+        $stmt = $conn->prepare("SELECT cafe_id FROM cafes ORDER BY cafe_id LIMIT 1");
+        $stmt->execute();
+        $first_cafe = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($first_cafe) {
+            $cafe_id = $first_cafe['cafe_id'];
+        }
+    }
+    
+    if ($cafe_id) {
+        $stmt = $conn->prepare("SELECT primary_color, secondary_color, accent_color FROM cafe_settings WHERE cafe_id = ?");
+        $stmt->execute([$cafe_id]);
+        $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($settings) {
+            $theme_colors = [
+                'primary' => $settings['primary_color'],
+                'secondary' => $settings['secondary_color'],
+                'accent' => $settings['accent_color']
+            ];
+        }
+    }
+} catch (Exception $e) {
+    // Use defaults if error
+}
+
+// Create gradient colors from theme with opacity
+$gradient_start = hexToRgba($theme_colors['secondary'], 0.85);
+$gradient_mid1 = hexToRgba(adjustBrightness($theme_colors['accent'], 10), 0.8);
+$gradient_mid2 = hexToRgba(adjustBrightness($theme_colors['accent'], 20), 0.75);
+$gradient_mid3 = hexToRgba(adjustBrightness($theme_colors['accent'], 30), 0.7);
+$gradient_end = hexToRgba(adjustBrightness($theme_colors['primary'], -20), 0.65);
 
 // Get tutorial steps for logged-in users
 $tutorial_steps = [];
@@ -20,32 +82,46 @@ if ($user_role && in_array($user_role, ['owner', 'cashier'])) {
     $tutorial_steps = getTutorialSteps($user_role);
 }
 
-if (!empty($search_query)) {
-    if ($search_type == 'product' && $is_customer) {
-        $stmt = $conn->prepare("
-            SELECT 
-                mi.item_id, mi.item_name, mi.price, mi.stock, mi.status, mi.image,
-                c.cafe_id, c.cafe_name, c.logo as cafe_logo, mc.category_name
-            FROM menu_items mi
-            JOIN cafes c ON mi.cafe_id = c.cafe_id
-            LEFT JOIN menu_categories mc ON mi.category_id = mc.category_id
-            WHERE mi.item_name LIKE ? AND mi.status = 'available' AND mi.stock > 0
-            ORDER BY mi.item_name
-            LIMIT 50
-        ");
-        $search_term = '%' . $search_query . '%';
-        $stmt->execute([$search_term]);
-        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Handle contact form submission
+$contact_error = '';
+$contact_success = '';
+$contact_name = '';
+$contact_email = '';
+$contact_subject = '';
+$contact_message = '';
+$web_owner_email = 'admin@symcafe.com'; // Change this to your actual web owner email
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['contact_submit'])) {
+    $contact_name = sanitizeInput($_POST['contact_name'] ?? '');
+    $contact_email = sanitizeInput($_POST['contact_email'] ?? '');
+    $contact_subject = sanitizeInput($_POST['contact_subject'] ?? '');
+    $contact_message = sanitizeInput($_POST['contact_message'] ?? '');
+    
+    if (empty($contact_name) || empty($contact_email) || empty($contact_subject) || empty($contact_message)) {
+        $contact_error = 'Please fill in all fields';
+    } elseif (!filter_var($contact_email, FILTER_VALIDATE_EMAIL)) {
+        $contact_error = 'Please enter a valid email address';
     } else {
-        $stmt = $conn->prepare("
-            SELECT cafe_id, cafe_name, address, description, phone, logo 
-            FROM cafes 
-            WHERE cafe_name LIKE ? OR address LIKE ? OR description LIKE ?
-            ORDER BY cafe_name
-        ");
-        $search_term = '%' . $search_query . '%';
-        $stmt->execute([$search_term, $search_term, $search_term]);
-        $cafes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Prepare email
+        $email_subject = "Contact Form: " . $contact_subject;
+        $email_body = "You have received a new message from the SYMCAFE contact form.\n\n";
+        $email_body .= "Name: " . $contact_name . "\n";
+        $email_body .= "Email: " . $contact_email . "\n";
+        $email_body .= "Subject: " . $contact_subject . "\n\n";
+        $email_body .= "Message:\n" . $contact_message . "\n";
+        
+        $email_headers = "From: " . $contact_email . "\r\n";
+        $email_headers .= "Reply-To: " . $contact_email . "\r\n";
+        $email_headers .= "X-Mailer: PHP/" . phpversion();
+        
+        // Send email
+        if (mail($web_owner_email, $email_subject, $email_body, $email_headers)) {
+            $contact_success = 'Thank you! Your message has been sent successfully.';
+            // Clear form fields
+            $contact_name = $contact_email = $contact_subject = $contact_message = '';
+        } else {
+            $contact_error = 'Sorry, there was an error sending your message. Please try again later.';
+        }
     }
 }
 
@@ -56,101 +132,125 @@ $page_title = 'Home';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo APP_NAME; ?> - Point of Sale System for Cafés</title>
+    <title><?php echo APP_NAME; ?> - Brewed to Elevate Your Day</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css">
     <style>
-        /* Landing Page Specific Styles - Matching Dashboard Design */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* Background with Image and Gradient Overlay */
         .landing-page {
             min-height: 100vh;
-            background: var(--primary-black);
-        }
-
-        .landing-nav {
-            background: rgba(26, 26, 26, 0.95);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            padding: 18px 32px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-            border-bottom: 1px solid var(--border-gray);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        }
-
-        .landing-nav h1 {
-            color: var(--primary-white);
-            margin: 0;
-            font-size: 26px;
-            font-weight: 700;
-        }
-
-        .landing-nav-links {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-        }
-
-        .landing-nav-links a, .learn-btn {
-            color: var(--primary-white);
-            text-decoration: none;
-            padding: 10px 20px;
-            border-radius: var(--radius-md);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            font-weight: 500;
-            border: 1px solid var(--border-gray);
-        }
-
-        .landing-nav-links a:hover, .learn-btn:hover {
-            background: var(--accent-gray);
-            border-color: var(--primary-white);
-            transform: translateY(-2px);
-        }
-
-        .learn-btn {
-            background: linear-gradient(135deg, var(--accent-color) 0%, var(--accent-hover) 100%);
-            border: none;
-            cursor: pointer;
-        }
-
-        .learn-btn:hover {
-            background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent-color) 100%);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-        }
-
-        /* Hero Section with Animations */
-        .hero-section {
-            background: linear-gradient(135deg, var(--primary-black) 0%, var(--accent-gray) 100%);
-            padding: 100px 32px;
-            text-align: center;
-            color: var(--primary-white);
             position: relative;
-            overflow: hidden;
+            background: url('<?php echo BASE_URL; ?>assets/bg.jpg') center/cover no-repeat fixed;
         }
 
-        .hero-section::before {
+        .landing-page::before {
             content: '';
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.1) 0%, transparent 70%);
-            animation: pulse 8s ease-in-out infinite;
+            background: linear-gradient(135deg, 
+                <?php echo $gradient_start; ?> 0%, 
+                <?php echo $gradient_mid1; ?> 25%, 
+                <?php echo $gradient_mid2; ?> 50%, 
+                <?php echo $gradient_mid3; ?> 75%, 
+                <?php echo $gradient_end; ?> 100%);
+            z-index: 0;
+            pointer-events: none;
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 0.5; transform: scale(1); }
-            50% { opacity: 0.8; transform: scale(1.1); }
+        /* Glass Header */
+        .landing-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .landing-nav h1 {
+            color: white;
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .landing-nav-links {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .landing-nav-links a, .learn-btn {
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .landing-nav-links a:hover, .learn-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .learn-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        /* Hero Section */
+        .hero-section {
+            position: relative;
+            z-index: 1;
+            padding: 150px 40px 80px;
+            max-width: 1400px;
+            margin: 0 auto;
         }
 
         .hero-content {
-            position: relative;
-            z-index: 1;
-            animation: fadeInUp 1s ease-out;
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .hero-content h1 {
+            font-size: 72px;
+            font-weight: 800;
+            color: white;
+            margin-bottom: 24px;
+            line-height: 1.2;
+            letter-spacing: -2px;
+            text-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            animation: fadeInUp 0.8s ease-out;
         }
 
         @keyframes fadeInUp {
@@ -164,447 +264,382 @@ $page_title = 'Home';
             }
         }
 
-        .hero-section h2 {
-            font-size: 48px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            letter-spacing: -1px;
+        /* Typing Animation */
+        .typing-container {
+            min-height: 80px;
+            margin-bottom: 40px;
         }
 
-        .hero-section p {
-            font-size: 20px;
-            color: var(--text-gray);
-            max-width: 800px;
-            margin: 0 auto 40px;
+        .typing-text {
+            font-size: 24px;
+            color: rgba(255, 255, 255, 0.95);
             line-height: 1.6;
-        }
-
-        /* Search Section - Dashboard Style */
-        .search-section {
-            background: var(--primary-white);
-            padding: 60px 32px;
-            text-align: center;
-        }
-
-        .search-section h2 {
-            color: var(--primary-black);
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 15px;
-        }
-
-        .search-section > p {
-            color: var(--text-gray);
-            font-size: 18px;
-            margin-bottom: 40px;
-        }
-
-        .search-box {
-            max-width: 700px;
+            max-width: 800px;
             margin: 0 auto;
-            display: flex;
-            gap: 12px;
-            animation: fadeInUp 1s ease-out 0.3s both;
+            min-height: 70px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         }
 
-        .search-box input, .search-box select {
-            flex: 1;
-            padding: 16px 20px;
-            border: 2px solid var(--border-gray);
-            border-radius: var(--radius-lg);
-            font-size: 16px;
-            background: var(--primary-white);
-            color: var(--primary-black);
-            transition: all 0.3s;
+        .typing-text .typing-cursor {
+            display: inline-block;
+            width: 3px;
+            height: 28px;
+            background: white;
+            margin-left: 4px;
+            animation: blink 1s infinite;
+            vertical-align: middle;
         }
 
-        .search-box input:focus, .search-box select:focus {
-            outline: none;
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
         }
 
-        .search-box button {
-            padding: 16px 32px;
-            background: linear-gradient(135deg, var(--accent-color) 0%, var(--accent-hover) 100%);
-            color: var(--primary-white);
-            border: none;
-            border-radius: var(--radius-lg);
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
-
-        .search-box button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-        }
-
-        /* Results Grid - Dashboard Card Style */
-        .cafe-results {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 24px;
-            padding: 40px 32px;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .cafe-card {
-            background: linear-gradient(135deg, var(--accent-gray) 0%, rgba(45, 45, 45, 0.95) 100%);
-            border-radius: var(--radius-xl);
-            padding: 24px;
-            text-align: center;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            border: 1px solid var(--border-gray);
-            cursor: pointer;
-            animation: cardAppear 0.6s ease-out forwards;
+        .typing-text.typing-complete .typing-cursor {
+            animation: none;
             opacity: 0;
-            transform: translateY(30px);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
         }
 
-        .cafe-card:nth-child(1) { animation-delay: 0.1s; }
-        .cafe-card:nth-child(2) { animation-delay: 0.2s; }
-        .cafe-card:nth-child(3) { animation-delay: 0.3s; }
-        .cafe-card:nth-child(4) { animation-delay: 0.4s; }
-        .cafe-card:nth-child(5) { animation-delay: 0.5s; }
-        .cafe-card:nth-child(6) { animation-delay: 0.6s; }
-
-        @keyframes cardAppear {
-            from {
-                opacity: 0;
-                transform: translateY(30px) scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        .cafe-card:hover {
-            transform: translateY(-8px) scale(1.02);
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-            border-color: rgba(99, 102, 241, 0.5);
-        }
-
-        .cafe-card img {
-            width: 100px;
-            height: 100px;
-            object-fit: contain;
-            margin-bottom: 16px;
-            border-radius: var(--radius-md);
-        }
-
-        .cafe-card h3 {
-            color: var(--primary-white);
-            margin: 12px 0;
-            font-size: 20px;
-            font-weight: 600;
-        }
-
-        .cafe-card p {
-            color: var(--text-gray);
-            font-size: 14px;
-            margin: 6px 0;
-        }
-
-        /* Section Styles - Dashboard Style */
-        .section {
-            padding: 80px 32px;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .section h2 {
-            color: var(--primary-white);
-            font-size: 36px;
-            font-weight: 700;
-            margin-bottom: 40px;
-            text-align: center;
-            letter-spacing: -0.5px;
-        }
-
-        .section p {
-            color: var(--text-gray);
-            font-size: 18px;
-            line-height: 1.8;
-            margin-bottom: 20px;
-        }
-
-        /* Features Grid - Dashboard Card Style */
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 24px;
+        .hero-cta {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
             margin-top: 40px;
         }
 
-        .feature-card {
-            background: linear-gradient(135deg, var(--accent-gray) 0%, rgba(45, 45, 45, 0.95) 100%);
-            padding: 32px;
-            border-radius: var(--radius-xl);
-            text-align: center;
-            border: 1px solid var(--border-gray);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        .btn-explore {
+            padding: 18px 40px;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.15) 100%);
             backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            animation: cardAppear 0.6s ease-out forwards;
-            opacity: 0;
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 30px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
 
-        .feature-card:nth-child(1) { animation-delay: 0.1s; }
-        .feature-card:nth-child(2) { animation-delay: 0.2s; }
-        .feature-card:nth-child(3) { animation-delay: 0.3s; }
-        .feature-card:nth-child(4) { animation-delay: 0.4s; }
-        .feature-card:nth-child(5) { animation-delay: 0.5s; }
-        .feature-card:nth-child(6) { animation-delay: 0.6s; }
+        .btn-explore:hover {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0.25) 100%);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        /* Features Section */
+        .features-section {
+            position: relative;
+            z-index: 1;
+            padding: 100px 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .features-section h2 {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .features-section > p {
+            text-align: center;
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 60px;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            text-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 60px;
+        }
+
+        .feature-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 40px 32px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.4s ease;
+            cursor: pointer;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
 
         .feature-card:hover {
-            transform: translateY(-8px) scale(1.03);
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-            border-color: rgba(99, 102, 241, 0.5);
+            transform: translateY(-10px) scale(1.05);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.2);
         }
 
-        .feature-card .feature-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-            display: block;
+        .feature-icon {
+            font-size: 56px;
+            color: white;
+            margin-bottom: 20px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
         }
 
         .feature-card h3 {
-            color: var(--primary-white);
-            font-size: 22px;
-            font-weight: 600;
-            margin-bottom: 12px;
+            font-size: 24px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
         }
 
         .feature-card p {
-            color: var(--text-gray);
-            font-size: 15px;
-            line-height: 1.6;
-            margin: 0;
+            font-size: 16px;
+            color: rgba(255, 255, 255, 0.9);
+            line-height: 1.7;
+            text-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        /* About Section */
+        .about-section {
+            position: relative;
+            z-index: 1;
+            padding: 100px 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .about-section h2 {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 40px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .about-content {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .about-content p {
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.95);
+            line-height: 1.8;
+            margin-bottom: 20px;
+            text-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .about-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Contact Section */
+        .contact-section {
+            position: relative;
+            z-index: 1;
+            padding: 100px 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .contact-section h2 {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .contact-section > p {
+            text-align: center;
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 60px;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            text-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .contact-form-container {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .contact-form-group {
+            margin-bottom: 24px;
+        }
+
+        .contact-form-group label {
+            display: block;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .contact-form-group input,
+        .contact-form-group textarea {
+            width: 100%;
+            padding: 14px 18px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-family: inherit;
+            transition: all 0.3s ease;
+        }
+
+        .contact-form-group input::placeholder,
+        .contact-form-group textarea::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .contact-form-group input:focus,
+        .contact-form-group textarea:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .contact-form-group textarea {
+            min-height: 150px;
+            resize: vertical;
+        }
+
+        .contact-submit-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.15) 100%);
+            backdrop-filter: blur(10px);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .contact-submit-btn:hover {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0.25) 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .contact-alert {
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .contact-alert.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fee2e2;
+        }
+
+        .contact-alert.success {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.4);
+            color: #dcfce7;
         }
 
         /* Footer */
         .footer-landing {
-            background: var(--primary-black);
-            padding: 40px 32px;
-            text-align: center;
-            color: var(--text-gray);
-            border-top: 1px solid var(--border-gray);
-        }
-
-        /* Tutorial Modal */
-        .tutorial-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(10px);
-            z-index: 10000;
-            overflow-y: auto;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .tutorial-modal.active {
-            display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            padding: 40px 20px;
-        }
-
-        .tutorial-content {
-            background: linear-gradient(135deg, var(--accent-gray) 0%, var(--primary-black) 100%);
-            border-radius: var(--radius-xl);
+            position: relative;
+            z-index: 1;
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(20px);
             padding: 40px;
-            max-width: 900px;
-            width: 100%;
-            max-height: 90vh;
-            overflow-y: auto;
-            border: 1px solid var(--border-gray);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-            animation: slideUp 0.4s ease-out;
-            margin-top: 40px;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(50px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .tutorial-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid var(--border-gray);
-        }
-
-        .tutorial-header h2 {
-            color: var(--primary-white);
-            font-size: 32px;
-            font-weight: 700;
-            margin: 0;
-        }
-
-        .tutorial-close {
-            background: none;
-            border: none;
-            color: var(--primary-white);
-            font-size: 32px;
-            cursor: pointer;
-            padding: 0;
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            transition: all 0.3s;
-        }
-
-        .tutorial-close:hover {
-            background: var(--hover-gray);
-            transform: rotate(90deg);
-        }
-
-        .tutorial-category {
-            margin-bottom: 40px;
-            animation: fadeInUp 0.6s ease-out;
-        }
-
-        .tutorial-category-title {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-
-        .tutorial-category-title .icon {
-            font-size: 32px;
-        }
-
-        .tutorial-category-title h3 {
-            color: var(--primary-white);
-            font-size: 24px;
-            font-weight: 600;
-            margin: 0;
-        }
-
-        .tutorial-category p {
-            color: var(--text-gray);
-            margin-bottom: 24px;
-            font-size: 16px;
-        }
-
-        .tutorial-steps-list {
-            display: grid;
-            gap: 16px;
-        }
-
-        .tutorial-step-item {
-            background: rgba(255, 255, 255, 0.05);
-            padding: 20px;
-            border-radius: var(--radius-lg);
-            border-left: 4px solid var(--accent-color);
-            transition: all 0.3s;
-        }
-
-        .tutorial-step-item:hover {
-            background: rgba(255, 255, 255, 0.08);
-            transform: translateX(8px);
-        }
-
-        .tutorial-step-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 8px;
-        }
-
-        .tutorial-step-header .icon {
-            font-size: 24px;
-        }
-
-        .tutorial-step-header h4 {
-            color: var(--primary-white);
-            font-size: 18px;
-            font-weight: 600;
-            margin: 0;
-        }
-
-        .tutorial-step-item p {
-            color: var(--text-gray);
-            font-size: 14px;
-            line-height: 1.6;
-            margin: 0 0 8px 0;
-        }
-
-        .tutorial-step-link {
-            display: inline-block;
-            color: var(--accent-color);
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            margin-top: 8px;
-            transition: all 0.3s;
-        }
-
-        .tutorial-step-link:hover {
-            color: var(--accent-hover);
-            transform: translateX(4px);
-        }
-
-        .tutorial-step-link i {
-            margin-left: 6px;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.9);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            margin-top: 60px;
         }
 
         /* Responsive */
         @media (max-width: 768px) {
-            .hero-section h2 {
-                font-size: 32px;
+            .hero-content h1 {
+                font-size: 42px;
             }
-            
-            .hero-section p {
+
+            .typing-text {
+                font-size: 18px;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .about-content {
+                padding: 30px 20px;
+            }
+
+            .about-content p {
                 font-size: 16px;
             }
-            
-            .search-box {
+
+            .contact-form-container {
+                padding: 30px 20px;
+            }
+
+            .contact-section h2,
+            .about-section h2 {
+                font-size: 36px;
+            }
+
+            .landing-nav {
+                padding: 16px 20px;
                 flex-direction: column;
+                gap: 16px;
             }
-            
-            .cafe-results {
-                grid-template-columns: 1fr;
-                padding: 20px 16px;
-            }
-            
-            .tutorial-content {
-                padding: 24px;
-                margin-top: 20px;
+
+            .landing-nav-links {
+                flex-wrap: wrap;
+                justify-content: center;
             }
         }
     </style>
 </head>
 <body class="landing-page">
-    <!-- Navigation Bar -->
+    <!-- Glass Navigation Bar -->
     <nav class="landing-nav">
         <h1><?php echo APP_NAME; ?></h1>
         <div class="landing-nav-links">
@@ -632,143 +667,58 @@ $page_title = 'Home';
     <!-- Hero Section -->
     <section class="hero-section">
         <div class="hero-content">
-            <h2>Welcome to <?php echo APP_NAME; ?></h2>
-            <p>Modern Point of Sale System designed specifically for cafés. Manage your business efficiently with our comprehensive POS solution.</p>
-            <?php if (!isLoggedIn()): ?>
-                <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
-                    <a href="register.php" class="btn btn-primary" style="padding: 16px 32px; font-size: 18px; text-decoration: none; display: inline-block;">
-                        <i class="fas fa-rocket"></i> Get Started
-                    </a>
-                    <a href="login.php" class="btn btn-secondary" style="padding: 16px 32px; font-size: 18px; text-decoration: none; display: inline-block;">
-                        <i class="fas fa-sign-in-alt"></i> Login
-                    </a>
+            <h1>Brewed to Elevate Your Day</h1>
+            <div class="typing-container">
+                <div class="typing-text" id="typingText">
+                    <span id="typingContent"></span>
+                    <span class="typing-cursor"></span>
                 </div>
-            <?php endif; ?>
+            </div>
+            <div class="hero-cta">
+                <a href="explore_cafes.php" class="btn-explore">
+                    <i class="fas fa-compass"></i> Explore Cafés
+                </a>
+            </div>
         </div>
     </section>
 
-    <!-- Search Section -->
-    <section class="search-section">
-        <h2>
-            <?php echo $is_customer ? 'Find Cafés & Order from Menu' : 'Find Your Favorite Café'; ?>
-        </h2>
-        <p>
-            <?php echo $is_customer ? 'Search for cafés or browse products to order' : 'Search for cafés and browse their menu'; ?>
-        </p>
-        <form method="GET" class="search-box">
-            <input type="text" name="search" placeholder="<?php echo $is_customer ? 'Search cafés or products...' : 'Search by café name, address, or description...'; ?>" value="<?php echo htmlspecialchars($search_query); ?>">
-            <?php if ($is_customer): ?>
-                <select name="type">
-                    <option value="cafe" <?php echo $search_type == 'cafe' ? 'selected' : ''; ?>>Search Cafés</option>
-                    <option value="product" <?php echo $search_type == 'product' ? 'selected' : ''; ?>>Search Products</option>
-                </select>
-            <?php endif; ?>
-            <button type="submit">
-                <i class="fas fa-search"></i> Search
-            </button>
-        </form>
-    </section>
-
-    <!-- Search Results -->
-    <?php if (!empty($search_query)): ?>
-        <div class="cafe-results">
-            <?php if ($search_type == 'product' && $is_customer): ?>
-                <?php if (empty($products)): ?>
-                    <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-gray);">
-                        <p style="font-size: 18px;">No products found matching "<?php echo htmlspecialchars($search_query); ?>"</p>
-                    </div>
-                <?php else: ?>
-                    <?php foreach ($products as $product): ?>
-                        <div class="cafe-card" onclick="window.location.href='customer_menu.php?cafe_id=<?php echo $product['cafe_id']; ?>'">
-                            <?php if (!empty($product['image']) && file_exists($product['image'])): ?>
-                                <img src="<?php echo htmlspecialchars($product['image']); ?>" alt="<?php echo htmlspecialchars($product['item_name']); ?>" style="height: 120px; object-fit: cover;">
-                            <?php else: ?>
-                                <div style="width: 100%; height: 120px; background: var(--accent-gray); border-radius: var(--radius-md); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 40px;">☕</div>
-                            <?php endif; ?>
-                            <h3><?php echo htmlspecialchars($product['item_name']); ?></h3>
-                            <p style="color: #10b981; font-size: 20px; font-weight: bold; margin: 8px 0;">
-                                <?php echo formatCurrency($product['price']); ?>
-                            </p>
-                            <p><strong>📍</strong> <?php echo htmlspecialchars($product['cafe_name']); ?></p>
-                            <?php if ($product['category_name']): ?>
-                                <p>Category: <?php echo htmlspecialchars($product['category_name']); ?></p>
-                            <?php endif; ?>
-                            <p>Stock: <?php echo $product['stock']; ?> available</p>
-                            <p style="color: var(--accent-color); font-weight: 600; margin-top: 12px;">Order Now <i class="fas fa-arrow-right"></i></p>
-                        </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            <?php else: ?>
-                <?php if (empty($cafes)): ?>
-                    <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-gray);">
-                        <p style="font-size: 18px;">No cafés found matching "<?php echo htmlspecialchars($search_query); ?>"</p>
-                    </div>
-                <?php else: ?>
-                    <?php foreach ($cafes as $cafe): ?>
-                        <div class="cafe-card" onclick="window.location.href='<?php echo $is_customer ? 'customer_menu.php' : 'menu.php'; ?>?cafe_id=<?php echo $cafe['cafe_id']; ?>'">
-                            <?php if (!empty($cafe['logo']) && file_exists($cafe['logo'])): ?>
-                                <img src="<?php echo htmlspecialchars($cafe['logo']); ?>" alt="<?php echo htmlspecialchars($cafe['cafe_name']); ?> Logo">
-                            <?php else: ?>
-                                <div style="width: 100px; height: 100px; background: var(--accent-gray); border-radius: var(--radius-md); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 40px;">☕</div>
-                            <?php endif; ?>
-                            <h3><?php echo htmlspecialchars($cafe['cafe_name']); ?></h3>
-                            <?php if (!empty($cafe['address'])): ?>
-                                <p><strong>📍</strong> <?php echo htmlspecialchars($cafe['address']); ?></p>
-                            <?php endif; ?>
-                            <?php if (!empty($cafe['phone'])): ?>
-                                <p><strong>📞</strong> <?php echo htmlspecialchars($cafe['phone']); ?></p>
-                            <?php endif; ?>
-                            <?php if (!empty($cafe['description'])): ?>
-                                <p style="font-size: 13px; margin-top: 10px;"><?php echo htmlspecialchars(substr($cafe['description'], 0, 100)); ?><?php echo strlen($cafe['description']) > 100 ? '...' : ''; ?></p>
-                            <?php endif; ?>
-                            <p style="color: var(--accent-color); font-weight: 600; margin-top: 12px;">
-                                <?php echo $is_customer ? 'Order from Menu <i class="fas fa-arrow-right"></i>' : 'View Menu <i class="fas fa-arrow-right"></i>'; ?>
-                            </p>
-                        </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            <?php endif; ?>
-        </div>
-    <?php endif; ?>
-
-    <!-- About Section -->
-    <section class="section">
-        <h2>About <?php echo APP_NAME; ?></h2>
-        <p><?php echo APP_NAME; ?> is a comprehensive Point of Sale (POS) system designed specifically for café businesses. Our platform helps café owners manage their operations efficiently, from product inventory to sales transactions, all in one integrated system.</p>
-        <p>Whether you're a small local café or a growing chain, <?php echo APP_NAME; ?> provides the tools you need to streamline your business operations, track sales, manage inventory, and provide excellent service to your customers.</p>
-    </section>
-
-    <!-- Advantages Section -->
-    <section class="section">
+    <!-- Features Section -->
+    <section class="features-section">
         <h2>Why Choose <?php echo APP_NAME; ?>?</h2>
+        <p>Experience the perfect blend of innovation and simplicity</p>
         <div class="features-grid">
             <div class="feature-card">
-                <span class="feature-icon">💰</span>
+                <i class="fas fa-coins feature-icon"></i>
                 <h3>Easy Sales Management</h3>
                 <p>Process transactions quickly with our intuitive POS interface. Support for multiple payment methods and voucher systems.</p>
             </div>
+            
             <div class="feature-card">
-                <span class="feature-icon">📊</span>
+                <i class="fas fa-chart-line feature-icon"></i>
                 <h3>Real-time Reports</h3>
                 <p>Track your sales performance with detailed monthly reports, including graphs and analytics to help you make informed decisions.</p>
             </div>
+            
             <div class="feature-card">
-                <span class="feature-icon">📦</span>
+                <i class="fas fa-boxes feature-icon"></i>
                 <h3>Inventory Control</h3>
                 <p>Manage your product stock levels automatically. Get alerts when items are running low or out of stock.</p>
             </div>
+            
             <div class="feature-card">
-                <span class="feature-icon">👥</span>
+                <i class="fas fa-users feature-icon"></i>
                 <h3>Multi-user Support</h3>
                 <p>Add cashiers and manage staff access. Each user has their own account with appropriate permissions.</p>
             </div>
+            
             <div class="feature-card">
-                <span class="feature-icon">🎫</span>
+                <i class="fas fa-ticket-alt feature-icon"></i>
                 <h3>Voucher System</h3>
                 <p>Create custom discount vouchers with flexible conditions to attract and retain customers.</p>
             </div>
+            
             <div class="feature-card">
-                <span class="feature-icon">🎨</span>
+                <i class="fas fa-palette feature-icon"></i>
                 <h3>Customizable</h3>
                 <p>Personalize your café's branding with custom logos and theme colors to match your business identity.</p>
             </div>
@@ -777,30 +727,30 @@ $page_title = 'Home';
 
     <!-- Tutorial Modal -->
     <?php if (!empty($tutorial_steps)): ?>
-        <div class="tutorial-modal" id="tutorialModal">
-            <div class="tutorial-content">
-                <div class="tutorial-header">
-                    <h2><i class="fas fa-graduation-cap"></i> Feature Tutorial</h2>
-                    <button class="tutorial-close" onclick="closeTutorial()">&times;</button>
+        <div class="tutorial-modal" id="tutorialModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(10px); z-index: 10000; overflow-y: auto;">
+            <div style="background: rgba(255, 255, 255, 0.95); border-radius: 30px; padding: 40px; max-width: 900px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); margin: 40px auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #E5E7EB;">
+                    <h2 style="color: #1F2937; font-size: 32px; font-weight: 700; margin: 0;"><i class="fas fa-graduation-cap"></i> Feature Tutorial</h2>
+                    <button onclick="closeTutorial()" style="background: none; border: none; color: #6B7280; font-size: 32px; cursor: pointer; padding: 0; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: all 0.3s;">&times;</button>
                 </div>
                 
                 <?php foreach ($tutorial_steps as $category): ?>
-                    <div class="tutorial-category">
-                        <div class="tutorial-category-title">
-                            <span class="icon"><?php echo $category['icon']; ?></span>
-                            <h3><?php echo htmlspecialchars($category['title']); ?></h3>
+                    <div style="margin-bottom: 40px;">
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+                            <span style="font-size: 32px;"><?php echo $category['icon']; ?></span>
+                            <h3 style="color: #1F2937; font-size: 24px; font-weight: 600; margin: 0;"><?php echo htmlspecialchars($category['title']); ?></h3>
                         </div>
-                        <p><?php echo htmlspecialchars($category['description']); ?></p>
-                        <div class="tutorial-steps-list">
+                        <p style="color: #6B7280; margin-bottom: 24px; font-size: 16px;"><?php echo htmlspecialchars($category['description']); ?></p>
+                        <div style="display: grid; gap: 16px;">
                             <?php foreach ($category['steps'] as $step): ?>
-                                <div class="tutorial-step-item">
-                                    <div class="tutorial-step-header">
-                                        <span class="icon"><?php echo htmlspecialchars($step['icon']); ?></span>
-                                        <h4><?php echo htmlspecialchars($step['title']); ?></h4>
+                                <div style="background: #F9FAFB; padding: 20px; border-radius: 20px; border-left: 4px solid #8B5CF6;">
+                                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                        <span style="font-size: 24px;"><?php echo htmlspecialchars($step['icon']); ?></span>
+                                        <h4 style="color: #1F2937; font-size: 18px; font-weight: 600; margin: 0;"><?php echo htmlspecialchars($step['title']); ?></h4>
                                     </div>
-                                    <p><?php echo htmlspecialchars($step['description']); ?></p>
+                                    <p style="color: #6B7280; font-size: 14px; line-height: 1.6; margin: 0 0 8px 0;"><?php echo htmlspecialchars($step['description']); ?></p>
                                     <?php if (isset($step['link'])): ?>
-                                        <a href="<?php echo htmlspecialchars($step['link']); ?>" class="tutorial-step-link" target="_blank">
+                                        <a href="<?php echo htmlspecialchars($step['link']); ?>" style="display: inline-block; color: #8B5CF6; text-decoration: none; font-size: 14px; font-weight: 500; margin-top: 8px;" target="_blank">
                                             Open Feature <i class="fas fa-external-link-alt"></i>
                                         </a>
                                     <?php endif; ?>
@@ -813,24 +763,96 @@ $page_title = 'Home';
         </div>
     <?php endif; ?>
 
+    <!-- About Section -->
+    <section class="about-section">
+        <h2>About <?php echo APP_NAME; ?></h2>
+        <div class="about-content">
+            <p>
+                <?php echo APP_NAME; ?> is a comprehensive café management system designed to help café owners streamline their operations, manage their inventory, and grow their business. We combine modern technology with user-friendly design to create the perfect solution for café management.
+            </p>
+            <p>
+                Our platform offers a complete suite of tools including point-of-sale (POS) systems, inventory management, sales analytics, customer order tracking, and voucher management. Whether you're running a small local café or managing multiple locations, <?php echo APP_NAME; ?> provides the tools you need to succeed.
+            </p>
+            <p>
+                At <?php echo APP_NAME; ?>, we believe that great coffee deserves great management. That's why we've built a system that's both powerful and easy to use, allowing you to focus on what you do best - creating exceptional experiences for your customers.
+            </p>
+            <p>
+                Join hundreds of café owners who trust <?php echo APP_NAME; ?> to manage their daily operations, track their sales, and grow their business. Experience the perfect blend of innovation and simplicity.
+            </p>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section class="contact-section">
+        <h2>Contact Us</h2>
+        <p>Have questions or feedback? We'd love to hear from you!</p>
+        <div class="contact-form-container">
+            <?php if ($contact_error): ?>
+                <div class="contact-alert error">
+                    <i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($contact_error); ?>
+                </div>
+            <?php endif; ?>
+            
+            <?php if ($contact_success): ?>
+                <div class="contact-alert success">
+                    <i class="fas fa-check-circle"></i> <?php echo htmlspecialchars($contact_success); ?>
+                </div>
+            <?php endif; ?>
+            
+            <form method="POST" action="">
+                <div class="contact-form-group">
+                    <label for="contact_name"><i class="fas fa-user"></i> Your Name</label>
+                    <input type="text" id="contact_name" name="contact_name" placeholder="Enter your name" value="<?php echo htmlspecialchars($contact_name); ?>" required>
+                </div>
+                
+                <div class="contact-form-group">
+                    <label for="contact_email"><i class="fas fa-envelope"></i> Your Email</label>
+                    <input type="email" id="contact_email" name="contact_email" placeholder="Enter your email" value="<?php echo htmlspecialchars($contact_email); ?>" required>
+                </div>
+                
+                <div class="contact-form-group">
+                    <label for="contact_subject"><i class="fas fa-tag"></i> Subject</label>
+                    <input type="text" id="contact_subject" name="contact_subject" placeholder="What is this about?" value="<?php echo htmlspecialchars($contact_subject); ?>" required>
+                </div>
+                
+                <div class="contact-form-group">
+                    <label for="contact_message"><i class="fas fa-comment"></i> Message</label>
+                    <textarea id="contact_message" name="contact_message" placeholder="Tell us what's on your mind..." required><?php echo htmlspecialchars($contact_message); ?></textarea>
+                </div>
+                
+                <button type="submit" name="contact_submit" class="contact-submit-btn">
+                    <i class="fas fa-paper-plane"></i> Send Message
+                </button>
+            </form>
+        </div>
+    </section>
+
     <!-- Footer -->
     <footer class="footer-landing">
-        <p>&copy; <?php echo date('Y'); ?> <?php echo APP_NAME; ?>. All rights reserved.</p>
-        <p style="margin-top: 10px; font-size: 14px;">Designed for modern café businesses</p>
+        <p style="margin: 0; font-size: 16px;">&copy; <?php echo date('Y'); ?> <?php echo APP_NAME; ?>. All rights reserved.</p>
+        <p style="margin-top: 10px; font-size: 14px;">Brewed with ❤️ for café lovers</p>
     </footer>
 
     <script>
         function openTutorial() {
-            document.getElementById('tutorialModal').classList.add('active');
-            document.body.style.overflow = 'hidden';
+            const modal = document.getElementById('tutorialModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                modal.style.alignItems = 'flex-start';
+                modal.style.justifyContent = 'center';
+                modal.style.padding = '40px 20px';
+                document.body.style.overflow = 'hidden';
+            }
         }
 
         function closeTutorial() {
-            document.getElementById('tutorialModal').classList.remove('active');
-            document.body.style.overflow = '';
+            const modal = document.getElementById('tutorialModal');
+            if (modal) {
+                modal.style.display = 'none';
+                document.body.style.overflow = '';
+            }
         }
 
-        // Close modal when clicking outside
         document.addEventListener('click', function(e) {
             const modal = document.getElementById('tutorialModal');
             if (modal && e.target === modal) {
@@ -838,11 +860,62 @@ $page_title = 'Home';
             }
         });
 
-        // Close modal with ESC key
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 closeTutorial();
             }
+        });
+
+        // Typing Animation
+        const typingSentences = [
+            "Discover exceptional cafés and savor handcrafted beverages that transform every moment into a delightful experience.",
+            "Experience the perfect blend of innovation and simplicity in café management.",
+            "From bean to cup, we bring you the finest café experience with modern technology.",
+            "Join thousands of café owners who trust us to elevate their business every day."
+        ];
+
+        let currentSentenceIndex = 0;
+        let currentCharIndex = 0;
+        let isDeleting = false;
+        let typingSpeed = 50;
+        let deletingSpeed = 30;
+        let pauseTime = 2000;
+
+        function typeText() {
+            const typingElement = document.getElementById('typingContent');
+            const typingTextElement = document.getElementById('typingText');
+            const currentSentence = typingSentences[currentSentenceIndex];
+
+            if (!typingElement) return;
+
+            if (isDeleting) {
+                typingElement.textContent = currentSentence.substring(0, currentCharIndex - 1);
+                currentCharIndex--;
+                typingSpeed = deletingSpeed;
+            } else {
+                typingElement.textContent = currentSentence.substring(0, currentCharIndex + 1);
+                currentCharIndex++;
+                typingSpeed = 50;
+            }
+
+            if (!isDeleting && currentCharIndex === currentSentence.length) {
+                typingTextElement.classList.add('typing-complete');
+                setTimeout(() => {
+                    isDeleting = true;
+                    typingTextElement.classList.remove('typing-complete');
+                    typingSpeed = deletingSpeed;
+                }, pauseTime);
+            } else if (isDeleting && currentCharIndex === 0) {
+                isDeleting = false;
+                currentSentenceIndex = (currentSentenceIndex + 1) % typingSentences.length;
+                typingSpeed = 50;
+            }
+
+            setTimeout(typeText, typingSpeed);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(typeText, 1000);
         });
     </script>
 </body>
