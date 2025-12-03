@@ -77,11 +77,8 @@ function calculateProductSales($conn, $cafe_id, $item_id, $period_start, $period
     return $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
-/**
- * Calculate profit for a product
- */
 function calculateProductProfit($conn, $item_id, $units_sold, $revenue) {
-    // Get product cost
+
     $stmt = $conn->prepare("SELECT cost_per_unit, price FROM menu_items WHERE item_id = ?");
     $stmt->execute([$item_id]);
     $product = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -96,10 +93,6 @@ function calculateProductProfit($conn, $item_id, $units_sold, $revenue) {
         'cost_per_unit' => $cost_per_unit
     ];
 }
-
-/**
- * Detect trend direction (up, down, stable)
- */
 function detectTrend($conn, $cafe_id, $item_id, $weeks = 4) {
     $periods = [];
     $end_date = date('Y-m-d');

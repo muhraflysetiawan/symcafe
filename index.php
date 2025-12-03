@@ -196,6 +196,16 @@ $page_title = 'Home';
             font-weight: 700;
             letter-spacing: -0.5px;
             text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .landing-nav h1 .logo-img {
+            height: 60px;
+            width: auto;
+            object-fit: contain;
+            filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.2));
         }
 
         .landing-nav-links {
@@ -641,7 +651,10 @@ $page_title = 'Home';
 <body class="landing-page">
     <!-- Glass Navigation Bar -->
     <nav class="landing-nav">
-        <h1><?php echo APP_NAME; ?></h1>
+        <h1>
+            <img src="<?php echo BASE_URL; ?>assets/logo.png" alt="Symcafe Logo" class="logo-img">
+            <?php echo APP_NAME; ?>
+        </h1>
         <div class="landing-nav-links">
             <?php if (isLoggedIn()): ?>
                 <?php if ($user_role == 'customer'): ?>
