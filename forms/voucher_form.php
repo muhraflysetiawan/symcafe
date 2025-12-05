@@ -38,6 +38,48 @@ $stmt = $conn->prepare("SELECT item_id, item_name FROM menu_items WHERE cafe_id 
 $stmt->execute([$cafe_id]);
 $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Function to generate single QR code
+function generateQRCode($conn, $voucher_id, $voucher_code) {
+    try {
+        // Check if QR code already exists
+        $stmt = $conn->prepare("SELECT code_id FROM voucher_codes WHERE voucher_id = ? LIMIT 1");
+        $stmt->execute([$voucher_id]);
+        if ($stmt->fetch()) {
+            // QR code already exists, update it to ensure it matches current voucher code
+            $stmt = $conn->prepare("UPDATE voucher_codes SET unique_code = ?, qr_code_data = ? WHERE voucher_id = ?");
+            $stmt->execute([$voucher_code, $voucher_code, $voucher_id]);
+            return true;
+        }
+        
+        // Create single QR code
+        $stmt = $conn->prepare("INSERT INTO voucher_codes (voucher_id, unique_code, qr_code_data) VALUES (?, ?, ?)");
+        $result = $stmt->execute([$voucher_id, $voucher_code, $voucher_code]);
+        
+        // Verify it was created
+        if ($result) {
+            $stmt = $conn->prepare("SELECT code_id FROM voucher_codes WHERE voucher_id = ? LIMIT 1");
+            $stmt->execute([$voucher_id]);
+            return $stmt->fetch() !== false;
+        }
+        return false;
+    } catch (Exception $e) {
+        error_log("Error generating QR code: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Check if voucher has QR code
+$has_qr_code = false;
+if ($is_edit && isset($voucher['voucher_id'])) {
+    try {
+        $stmt = $conn->prepare("SELECT code_id FROM voucher_codes WHERE voucher_id = ? LIMIT 1");
+        $stmt->execute([$voucher['voucher_id']]);
+        $has_qr_code = $stmt->fetch() !== false;
+    } catch (Exception $e) {
+        // Table might not exist
+    }
+}
+
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $voucher_code = strtoupper(trim(sanitizeInput($_POST['voucher_code'] ?? '')));
@@ -51,6 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $usage_limit = !empty($_POST['usage_limit']) ? (int)$_POST['usage_limit'] : null;
     $valid_from = !empty($_POST['valid_from']) ? $_POST['valid_from'] : null;
     $valid_until = !empty($_POST['valid_until']) ? $_POST['valid_until'] : null;
+    $enable_qr = isset($_POST['enable_qr']) ? 1 : 0;
     
     if (empty($voucher_code) || $discount_amount <= 0) {
         $error = 'Voucher code and discount amount are required';
@@ -70,6 +113,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 } else {
                     $stmt = $conn->prepare("UPDATE vouchers SET voucher_code = ?, discount_amount = ?, min_order_amount = ?, max_order_amount = ?, applicable_products = ?, is_active = ?, usage_limit = ?, valid_from = ?, valid_until = ? WHERE voucher_id = ? AND cafe_id = ?");
                     if ($stmt->execute([$voucher_code, $discount_amount, $min_order_amount, $max_order_amount, $applicable_products, $is_active, $usage_limit, $valid_from, $valid_until, $voucher_id, $cafe_id])) {
+                        // Generate single QR code if enabled
+                        if ($enable_qr) {
+                            generateQRCode($conn, $voucher_id, $voucher_code);
+                        }
                         $success = 'Voucher updated successfully';
                         header('Location: ../vouchers.php');
                         exit();
@@ -86,6 +133,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 } else {
                     $stmt = $conn->prepare("INSERT INTO vouchers (cafe_id, voucher_code, discount_amount, min_order_amount, max_order_amount, applicable_products, is_active, usage_limit, valid_from, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     if ($stmt->execute([$cafe_id, $voucher_code, $discount_amount, $min_order_amount, $max_order_amount, $applicable_products, $is_active, $usage_limit, $valid_from, $valid_until])) {
+                        $voucher_id = $conn->lastInsertId();
+                        
+                        // Generate single QR code if enabled
+                        if ($enable_qr) {
+                            generateQRCode($conn, $voucher_id, $voucher_code);
+                        }
+                        
                         $success = 'Voucher added successfully';
                         header('Location: ../vouchers.php');
                         exit();
@@ -189,6 +243,25 @@ if ($is_edit && !empty($voucher['applicable_products'])) {
                 <label for="valid_until">Valid Until</label>
                 <input type="date" id="valid_until" name="valid_until" 
                        value="<?php echo $voucher['valid_until'] ?? ''; ?>">
+            </div>
+        </div>
+        
+        <div class="form-group" style="background: var(--accent-gray); padding: 15px; border-radius: 5px; margin-top: 20px;">
+            <h3 style="color: var(--primary-white); margin-top: 0; margin-bottom: 15px; font-size: 16px;">QR Code Options</h3>
+            
+            <div>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="enable_qr" name="enable_qr" <?php echo $has_qr_code ? 'checked' : ''; ?>>
+                    <span>Enable QR Code for this voucher</span>
+                </label>
+                <p style="color: var(--text-gray); font-size: 12px; margin-top: 5px; margin-left: 28px;">
+                    If enabled, a single QR code will be created for this voucher. The QR code can be used up to the usage limit set above.
+                </p>
+                <?php if ($has_qr_code): ?>
+                    <p style="color: #28a745; font-size: 12px; margin-top: 5px; margin-left: 28px;">
+                        ✓ QR code already exists for this voucher
+                    </p>
+                <?php endif; ?>
             </div>
         </div>
         

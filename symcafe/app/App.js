@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import StoreSelectionScreen from './screens/StoreSelectionScreen';
+import CafeListScreen from './screens/CafeListScreen';
 import MenuScreen from './screens/MenuScreen';
 import CartScreen from './screens/CartScreen';
 import CheckoutScreen from './screens/CheckoutScreen';
@@ -24,10 +25,7 @@ function HomeTabs() {
   return (
     <Tab.Navigator
       screenOptions={{
-        headerStyle: {
-          backgroundColor: colors.primaryBlack,
-        },
-        headerTintColor: colors.primaryWhite,
+        headerShown: false,
         tabBarStyle: {
           backgroundColor: colors.primaryBlack,
           borderTopColor: colors.borderGray,
@@ -41,7 +39,6 @@ function HomeTabs() {
         component={StoreSelectionScreen}
         options={{
           title: 'Stores',
-          headerTitle: 'SYMCAFE',
         }}
       />
       <Tab.Screen 
@@ -49,7 +46,6 @@ function HomeTabs() {
         component={OrdersScreen}
         options={{
           title: 'My Orders',
-          headerTitle: 'My Orders',
         }}
       />
     </Tab.Navigator>
@@ -73,12 +69,9 @@ function AppNavigator() {
       <StatusBar style="light" />
       <Stack.Navigator
         screenOptions={{
-          headerStyle: {
-            backgroundColor: colors.primaryBlack,
-          },
-          headerTintColor: colors.primaryWhite,
+          headerShown: false,
           contentStyle: {
-            backgroundColor: colors.primaryBlack,
+            backgroundColor: '#FFFFFF',
           },
         }}
       >
@@ -92,7 +85,7 @@ function AppNavigator() {
             <Stack.Screen 
               name="Register" 
               component={RegisterScreen}
-              options={{ title: 'Register' }}
+              options={{ headerShown: false }}
             />
           </>
         ) : (
@@ -103,24 +96,29 @@ function AppNavigator() {
               options={{ headerShown: false }}
             />
             <Stack.Screen 
+              name="CafeList" 
+              component={CafeListScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen 
               name="Menu" 
               component={MenuScreen}
-              options={{ title: 'Menu' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen 
               name="Cart" 
               component={CartScreen}
-              options={{ title: 'Shopping Cart' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen 
               name="Checkout" 
               component={CheckoutScreen}
-              options={{ title: 'Checkout' }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen 
               name="OrderDetail" 
               component={OrderDetailScreen}
-              options={{ title: 'Order Details' }}
+              options={{ headerShown: false }}
             />
           </>
         )}

@@ -15,6 +15,7 @@ import { cafeService } from '../services/cafeService';
 import { formatCurrency } from '../utils/currency';
 import { colors, spacing, typography } from '../constants/theme';
 import { storage } from '../utils/storage';
+import { BASE_URL } from '../config/api';
 
 export default function MenuScreen({ route, navigation }) {
   const { cafe } = route.params || {};
@@ -79,12 +80,18 @@ export default function MenuScreen({ route, navigation }) {
     }
   }, [cafe?.cafe_id]);
 
-  // Load cart function
+  // Load cart function - filter by current cafe
   const loadCart = React.useCallback(async () => {
     try {
       const cartData = await storage.getItem('cart');
       if (cartData && Array.isArray(cartData)) {
-        setCart(cartData);
+        // Filter cart to show only items from current cafe
+        if (cafe && cafe.cafe_id) {
+          const cafeCart = cartData.filter(item => item.cafe_id === cafe.cafe_id);
+          setCart(cafeCart);
+        } else {
+          setCart([]);
+        }
       } else {
         setCart([]);
       }
@@ -92,7 +99,7 @@ export default function MenuScreen({ route, navigation }) {
       console.error('Cart load error:', error);
       setCart([]);
     }
-  }, []);
+  }, [cafe]);
 
   // Load menu when cafe is available - only once per cafe
   useEffect(() => {
@@ -198,8 +205,20 @@ export default function MenuScreen({ route, navigation }) {
   }, [cafe?.cafe_id]); // Only depend on cafe_id
 
   const saveCart = async (newCart) => {
-    await storage.setItem('cart', newCart);
-    setCart(newCart);
+    // Get existing cart and merge with new items from current cafe
+    try {
+      const existingCart = await storage.getItem('cart') || [];
+      // Remove items from current cafe (to replace with new cart)
+      const otherCafeItems = existingCart.filter(item => !item.cafe_id || item.cafe_id !== cafe.cafe_id);
+      // Combine with new cart items
+      const mergedCart = [...otherCafeItems, ...newCart];
+      await storage.setItem('cart', mergedCart);
+      setCart(newCart);
+    } catch (error) {
+      console.error('Error saving cart:', error);
+      await storage.setItem('cart', newCart);
+      setCart(newCart);
+    }
   };
 
   const openProductModal = (product) => {
@@ -289,6 +308,8 @@ export default function MenuScreen({ route, navigation }) {
         variations: variationsArray,
         addons: [...selectedAddons],
         cartKey: cartKey,
+        cafe_id: cafe.cafe_id, // Store cafe_id to ensure per-cafe carts
+        cafe: cafe, // Store full cafe object for navigation
       };
       newCart = [...cart, cartItem];
     }
@@ -326,7 +347,7 @@ export default function MenuScreen({ route, navigation }) {
       onPress={() => openProductModal(item)}
     >
       {item.image_url ? (
-        <Image source={{ uri: item.image_url }} style={styles.productImage} />
+        <Image source={{ uri: BASE_URL + item.image_url }} style={styles.productImage} />
       ) : (
         <View style={styles.placeholderImage}>
           <Text style={styles.placeholderText}>No Image</Text>
@@ -422,7 +443,7 @@ export default function MenuScreen({ route, navigation }) {
       {/* Cafe Info */}
       <View style={styles.cafeInfo}>
         {cafe.logo_url && (
-          <Image source={{ uri: cafe.logo_url }} style={styles.cafeLogo} />
+          <Image source={{ uri: BASE_URL + cafe.logo_url }} style={styles.cafeLogo} />
         )}
         <View style={styles.cafeDetails}>
           <Text style={styles.cafeName}>{cafe.cafe_name}</Text>
@@ -569,7 +590,7 @@ export default function MenuScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primaryBlack,
+    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
@@ -607,69 +628,87 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   categoryTitle: {
-    ...typography.h3,
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.textPrimary,
     marginBottom: spacing.md,
     paddingBottom: spacing.sm,
     borderBottomWidth: 2,
-    borderBottomColor: colors.borderGray,
+    borderBottomColor: colors.primaryBrown,
   },
   productRow: {
     justifyContent: 'space-between',
   },
   productCard: {
-    backgroundColor: colors.accentGray,
-    borderRadius: 8,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
     width: '48%',
     marginBottom: spacing.md,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: colors.borderGray,
+    borderColor: colors.mediumGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   productImage: {
     width: '100%',
-    height: 150,
-    backgroundColor: colors.primaryBlack,
+    height: 160,
+    backgroundColor: colors.lightGray,
+    resizeMode: 'cover',
   },
   placeholderImage: {
     width: '100%',
-    height: 150,
-    backgroundColor: colors.primaryBlack,
+    height: 160,
+    backgroundColor: colors.lightGray,
     justifyContent: 'center',
     alignItems: 'center',
   },
   placeholderText: {
-    color: colors.textGray,
+    color: colors.textSecondary,
+    fontSize: 12,
   },
   productInfo: {
-    padding: spacing.sm,
+    padding: spacing.md,
   },
   productName: {
-    ...typography.body,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
   productStock: {
-    ...typography.small,
+    fontSize: 12,
+    color: colors.textSecondary,
     marginBottom: spacing.xs,
   },
   productPrice: {
-    ...typography.body,
-    color: colors.success,
-    fontWeight: 'bold',
+    fontSize: 18,
+    color: colors.primaryBrown,
+    fontWeight: '700',
   },
   cartButton: {
     position: 'absolute',
     bottom: spacing.md,
     right: spacing.md,
-    backgroundColor: colors.primaryWhite,
-    padding: spacing.md,
+    backgroundColor: colors.primaryBrown,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     borderRadius: 25,
     minWidth: 120,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
   cartButtonText: {
-    color: colors.primaryBlack,
-    fontWeight: '600',
+    color: colors.primaryWhite,
+    fontWeight: '700',
+    fontSize: 16,
   },
   modalContainer: {
     flex: 1,
@@ -679,9 +718,9 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   modalContent: {
-    backgroundColor: colors.primaryBlack,
-    borderRadius: 10,
-    padding: spacing.md,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 16,
+    padding: spacing.lg,
     maxHeight: '80%',
     width: '100%',
   },

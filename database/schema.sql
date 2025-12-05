@@ -413,6 +413,16 @@ CREATE TABLE `voucher_usage_log` (
   `hour_of_day` int(11) DEFAULT NULL,
   `day_of_week` varchar(20) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE `voucher_codes` (
+  `code_id` int(11) NOT NULL,
+  `voucher_id` int(11) NOT NULL,
+  `unique_code` varchar(50) NOT NULL,
+  `qr_code_data` text DEFAULT NULL,
+  `is_used` tinyint(1) DEFAULT 0,
+  `used_at` timestamp NULL DEFAULT NULL,
+  `used_by_order_id` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ALTER TABLE `activity_logs`
   ADD PRIMARY KEY (`log_id`),
   ADD KEY `user_id` (`user_id`);
@@ -568,6 +578,11 @@ ALTER TABLE `voucher_usage_log`
   ADD KEY `order_id` (`order_id`),
   ADD KEY `idx_voucher_usage` (`voucher_id`,`used_at`),
   ADD KEY `idx_customer_usage` (`customer_id`,`used_at`);
+ALTER TABLE `voucher_codes`
+  ADD PRIMARY KEY (`code_id`),
+  ADD UNIQUE KEY `unique_code` (`unique_code`),
+  ADD KEY `voucher_id` (`voucher_id`),
+  ADD KEY `idx_used` (`is_used`,`voucher_id`);
 ALTER TABLE `activity_logs`
   MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT;
 ALTER TABLE `cafes`
@@ -648,6 +663,8 @@ ALTER TABLE `voucher_profit_impact`
   MODIFY `impact_id` int(11) NOT NULL AUTO_INCREMENT;
 ALTER TABLE `voucher_usage_log`
   MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
+ALTER TABLE `voucher_codes`
+  MODIFY `code_id` int(11) NOT NULL AUTO_INCREMENT;
 ALTER TABLE `activity_logs`
   ADD CONSTRAINT `activity_logs_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`);
 ALTER TABLE `cafes`
@@ -756,9 +773,6 @@ ALTER TABLE `voucher_usage_log`
   ADD CONSTRAINT `voucher_usage_log_ibfk_2` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `voucher_usage_log_ibfk_3` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`customer_id`) ON DELETE SET NULL;
 COMMIT;
-<<<<<<< HEAD
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-=======
->>>>>>> a12d4069936b3bad72f24effc263f1a00648aa1a

@@ -4,12 +4,12 @@
 // To find your IP: Run 'ipconfig' (Windows) or 'ifconfig' (Mac/Linux)
 
 export const API_BASE_URL = __DEV__ 
-  ? 'http://10.61.4.45/beandesk/api' // Replace YOUR_IP_HERE with your local IP (e.g., 192.168.1.100)
-  : 'https://10.61.4.45/api'; // Production
+  ? 'http://192.168.1.2/beandesk/api' // Your local IP address
+  : 'https://192.168.1.2/api'; // Production
 
 export const BASE_URL = __DEV__
-  ? 'http://10.61.4.45/beandesk/' // Replace YOUR_IP_HERE with your local IP
-  : 'https://10.61.4.45/';
+  ? 'http://192.168.1.2/beandesk/' // Your local IP address
+  : 'https://192.168.1.2/';
 
 // API Endpoints
 export const API_ENDPOINTS = {
@@ -20,5 +20,6 @@ export const API_ENDPOINTS = {
   TAX: '/tax.php',
   PLACE_ORDER: '/place_order.php',
   ORDERS: '/orders.php',
+  PROMOTIONAL_BANNERS: '/promotional_banners.php',
 };
 

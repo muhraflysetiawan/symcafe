@@ -13,9 +13,11 @@ import { orderService } from '../services/orderService';
 import { formatCurrency } from '../utils/currency';
 import { colors, spacing, typography } from '../constants/theme';
 import { storage } from '../utils/storage';
+import { useAuth } from '../context/AuthContext';
 
 export default function CheckoutScreen({ route, navigation }) {
   const { cafe, cart, subtotal, tax, total, taxPercentage } = route.params;
+  const { user } = useAuth();
   
   const [orderType, setOrderType] = useState('take-away');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -47,7 +49,14 @@ export default function CheckoutScreen({ route, navigation }) {
         cafe_id: cafe.cafe_id,
         cart_items: cart.length,
         total: total,
+        user: user ? { id: user.id || user.user_id, name: user.name } : null,
       });
+
+      // Ensure user_id is included if available from AuthContext
+      if (user && (user.id || user.user_id)) {
+        orderData.user_id = user.id || user.user_id;
+        console.log('[CheckoutScreen] Added user_id from AuthContext:', orderData.user_id);
+      }
 
       const response = await orderService.placeOrder(orderData);
       console.log('[CheckoutScreen] Order response:', response);
@@ -224,18 +233,23 @@ export default function CheckoutScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primaryBlack,
+    backgroundColor: colors.background,
   },
   content: {
     padding: spacing.md,
   },
   section: {
-    backgroundColor: colors.accentGray,
-    borderRadius: 8,
-    padding: spacing.md,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.borderGray,
+    borderColor: colors.mediumGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   sectionTitle: {
     ...typography.h3,

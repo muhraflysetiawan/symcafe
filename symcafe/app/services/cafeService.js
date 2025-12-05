@@ -2,9 +2,12 @@ import api from './api';
 import { API_ENDPOINTS } from '../config/api';
 
 export const cafeService = {
-  async getCafes() {
+  async getCafes(searchQuery = '') {
     try {
-      const response = await api.get(API_ENDPOINTS.CAFES);
+      const url = searchQuery 
+        ? `${API_ENDPOINTS.CAFES}?search=${encodeURIComponent(searchQuery)}`
+        : API_ENDPOINTS.CAFES;
+      const response = await api.get(url);
       return response.data;
     } catch (error) {
       throw error.response?.data?.message || error.message || 'Failed to fetch cafes';
@@ -26,6 +29,15 @@ export const cafeService = {
       return response.data;
     } catch (error) {
       throw error.response?.data?.message || error.message || 'Failed to fetch tax';
+    }
+  },
+
+  async getPromotionalBanners() {
+    try {
+      const response = await api.get(API_ENDPOINTS.PROMOTIONAL_BANNERS);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || error.message || 'Failed to fetch banners';
     }
   },
 };

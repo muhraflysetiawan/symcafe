@@ -182,13 +182,17 @@ if (isset($_SESSION['error'])) {
                 <div class="form-group" style="margin-top: 15px;">
                     <label for="voucher_code">Voucher Code (Optional)</label>
                     <div style="display: flex; gap: 10px;">
-                        <input type="text" id="voucher_code" name="voucher_code" placeholder="Enter voucher code" 
+                        <input type="text" id="voucher_code" name="voucher_code" placeholder="Enter voucher code or scan QR" 
                                style="flex: 1; text-transform: uppercase;" onkeyup="this.value = this.value.toUpperCase(); validateVoucher()">
+                        <button type="button" class="btn btn-secondary" onclick="openQRScanner()" title="Scan QR Code">
+                            📷 Scan
+                        </button>
                         <button type="button" class="btn btn-secondary" onclick="validateVoucher()">Apply</button>
                     </div>
                     <div id="voucherMessage" style="margin-top: 5px; font-size: 12px;"></div>
                     <input type="hidden" id="voucher_discount" name="voucher_discount" value="0">
                     <input type="hidden" id="voucher_id" name="voucher_id" value="">
+                    <input type="hidden" id="voucher_code_id" name="voucher_code_id" value="">
                 </div>
                 <div class="form-group">
                     <label for="tax">Tax (%) <span style="color: var(--text-gray); font-size: 12px; font-weight: normal;">(Set by owner in settings)</span></label>
@@ -621,22 +625,13 @@ function validateVoucher() {
     const voucherMessage = document.getElementById('voucherMessage');
     const voucherDiscount = document.getElementById('voucher_discount');
     const voucherId = document.getElementById('voucher_id');
+    const voucherCodeId = document.getElementById('voucher_code_id');
     
     if (!voucherCode) {
         voucherMessage.innerHTML = '';
         voucherDiscount.value = 0;
         voucherId.value = '';
-        calculateTotal();
-        return;
-    }
-    
-    // Find matching voucher
-    const voucher = availableVouchers.find(v => v.voucher_code === voucherCode);
-    
-    if (!voucher) {
-        voucherMessage.innerHTML = '<span style="color: #dc3545;">Invalid voucher code</span>';
-        voucherDiscount.value = 0;
-        voucherId.value = '';
+        voucherCodeId.value = '';
         calculateTotal();
         return;
     }
@@ -647,50 +642,97 @@ function validateVoucher() {
         subtotal += item.price * item.quantity;
     });
     
-    // Check minimum order amount
-    if (voucher.min_order_amount > 0 && subtotal < parseFloat(voucher.min_order_amount)) {
-        voucherMessage.innerHTML = '<span style="color: #ffc107;">Minimum order: ' + formatCurrency(voucher.min_order_amount) + '</span>';
-        voucherDiscount.value = 0;
-        voucherId.value = '';
-        calculateTotal();
-        return;
-    }
-    
-    // Check maximum order amount
-    if (voucher.max_order_amount && subtotal > parseFloat(voucher.max_order_amount)) {
-        voucherMessage.innerHTML = '<span style="color: #ffc107;">Maximum order: ' + formatCurrency(voucher.max_order_amount) + '</span>';
-        voucherDiscount.value = 0;
-        voucherId.value = '';
-        calculateTotal();
-        return;
-    }
-    
-    // Check applicable products if specified
-    if (voucher.applicable_products && voucher.applicable_products !== null && voucher.applicable_products !== '') {
-        try {
-            const applicableProducts = JSON.parse(voucher.applicable_products);
-            if (Array.isArray(applicableProducts) && applicableProducts.length > 0) {
-                const cartProductIds = cart.map(item => item.id);
-                const hasApplicableProduct = cartProductIds.some(id => applicableProducts.includes(parseInt(id)));
-                
-                if (!hasApplicableProduct) {
-                    voucherMessage.innerHTML = '<span style="color: #ffc107;">Voucher not applicable to selected products</span>';
-                    voucherDiscount.value = 0;
-                    voucherId.value = '';
-                    calculateTotal();
-                    return;
+    // Try to validate as unique code first via API
+    fetch('api/validate_voucher_code.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            unique_code: voucherCode,
+            subtotal: subtotal
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Unique code is valid
+            voucherMessage.innerHTML = '<span style="color: #28a745;">✓ Discount: ' + formatCurrency(parseFloat(data.discount_amount)) + '</span>';
+            voucherDiscount.value = data.discount_amount;
+            voucherId.value = data.voucher_id || '';
+            voucherCodeId.value = data.voucher_code_id || '';
+            calculateTotal();
+        } else {
+            // Try legacy voucher code validation
+            const voucher = availableVouchers.find(v => v.voucher_code === voucherCode);
+            
+            if (!voucher) {
+                voucherMessage.innerHTML = '<span style="color: #dc3545;">' + (data.message || 'Invalid voucher code') + '</span>';
+                voucherDiscount.value = 0;
+                voucherId.value = '';
+                voucherCodeId.value = '';
+                calculateTotal();
+                return;
+            }
+            
+            // Check minimum order amount
+            if (voucher.min_order_amount > 0 && subtotal < parseFloat(voucher.min_order_amount)) {
+                voucherMessage.innerHTML = '<span style="color: #ffc107;">Minimum order: ' + formatCurrency(voucher.min_order_amount) + '</span>';
+                voucherDiscount.value = 0;
+                voucherId.value = '';
+                voucherCodeId.value = '';
+                calculateTotal();
+                return;
+            }
+            
+            // Check maximum order amount
+            if (voucher.max_order_amount && subtotal > parseFloat(voucher.max_order_amount)) {
+                voucherMessage.innerHTML = '<span style="color: #ffc107;">Maximum order: ' + formatCurrency(voucher.max_order_amount) + '</span>';
+                voucherDiscount.value = 0;
+                voucherId.value = '';
+                voucherCodeId.value = '';
+                calculateTotal();
+                return;
+            }
+            
+            // Check applicable products if specified
+            if (voucher.applicable_products && voucher.applicable_products !== null && voucher.applicable_products !== '') {
+                try {
+                    const applicableProducts = JSON.parse(voucher.applicable_products);
+                    if (Array.isArray(applicableProducts) && applicableProducts.length > 0) {
+                        const cartProductIds = cart.map(item => item.id);
+                        const hasApplicableProduct = cartProductIds.some(id => applicableProducts.includes(parseInt(id)));
+                        
+                        if (!hasApplicableProduct) {
+                            voucherMessage.innerHTML = '<span style="color: #ffc107;">Voucher not applicable to selected products</span>';
+                            voucherDiscount.value = 0;
+                            voucherId.value = '';
+                            voucherCodeId.value = '';
+                            calculateTotal();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // Invalid JSON, skip product validation
                 }
             }
-        } catch (e) {
-            // Invalid JSON, skip product validation
+            
+            // Legacy voucher is valid
+            voucherMessage.innerHTML = '<span style="color: #28a745;">✓ Discount: ' + formatCurrency(parseFloat(voucher.discount_amount)) + '</span>';
+            voucherDiscount.value = voucher.discount_amount;
+            voucherId.value = voucher.voucher_id || '';
+            voucherCodeId.value = '';
+            calculateTotal();
         }
-    }
-    
-    // Voucher is valid
-    voucherMessage.innerHTML = '<span style="color: #28a745;">✓ Discount: ' + formatCurrency(parseFloat(voucher.discount_amount)) + '</span>';
-    voucherDiscount.value = voucher.discount_amount;
-    voucherId.value = voucher.voucher_id || '';
-    calculateTotal();
+    })
+    .catch(error => {
+        console.error('Error validating voucher:', error);
+        voucherMessage.innerHTML = '<span style="color: #dc3545;">Error validating voucher code</span>';
+        voucherDiscount.value = 0;
+        voucherId.value = '';
+        voucherCodeId.value = '';
+        calculateTotal();
+    });
 }
 
 function calculateTotal() {
@@ -859,6 +901,229 @@ document.getElementById('posForm').addEventListener('submit', function(e) {
         }
     }
 });
+
+// QR Code Scanner
+let qrScannerActive = false;
+let qrStream = null;
+
+function openQRScanner() {
+    if (qrScannerActive) {
+        closeQRScanner();
+        return;
+    }
+    
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'qrScannerModal';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center;';
+    
+    modal.innerHTML = `
+        <div style="background: var(--primary-black); padding: 20px; border-radius: 10px; max-width: 500px; width: 90%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="color: var(--primary-white); margin: 0;">Scan QR Code</h3>
+                <button onclick="closeQRScanner()" style="background: none; border: none; color: var(--primary-white); font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div id="qrReader" style="width: 100%; min-height: 300px; max-height: 500px; border-radius: 5px; background: #000; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                <div style="color: #fff; text-align: center;">Initializing camera...</div>
+            </div>
+            <div id="qrStatus" style="color: var(--text-gray); text-align: center; margin-top: 10px; font-size: 14px;">Loading camera...</div>
+            <button onclick="closeQRScanner()" class="btn btn-secondary" style="width: 100%; margin-top: 15px;">Cancel</button>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    qrScannerActive = true;
+    
+    // Load QR scanner library
+    if (typeof Html5Qrcode === 'undefined') {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+        script.onload = () => {
+            setTimeout(startQRScanner, 100); // Small delay to ensure DOM is ready
+        };
+        script.onerror = () => {
+            document.getElementById('qrStatus').innerHTML = '<span style="color: #dc3545;">Failed to load QR scanner. Please enter code manually.</span>';
+        };
+        document.head.appendChild(script);
+    } else {
+        setTimeout(startQRScanner, 100);
+    }
+}
+
+function startQRScanner() {
+    const readerElement = document.getElementById('qrReader');
+    const status = document.getElementById('qrStatus');
+    
+    if (!readerElement) {
+        console.error('QR reader element not found');
+        return;
+    }
+    
+    // Use html5-qrcode library if available
+    if (typeof Html5Qrcode !== 'undefined') {
+        try {
+            status.innerHTML = '<span style="color: var(--text-gray);">Checking for cameras...</span>';
+            
+            // First, check if we can access camera
+            Html5Qrcode.getCameras().then(devices => {
+                // Clear any existing content
+                readerElement.innerHTML = '';
+                
+                const html5QrCode = new Html5Qrcode("qrReader");
+                
+                status.innerHTML = '<span style="color: var(--text-gray);">Requesting camera access...</span>';
+                if (devices && devices.length > 0) {
+                    status.innerHTML = '<span style="color: var(--text-gray);">Starting camera...</span>';
+                    
+                    // Try to use back camera first, then any available camera
+                    let cameraId = null;
+                    for (let device of devices) {
+                        if (device.label.toLowerCase().includes('back') || device.label.toLowerCase().includes('rear')) {
+                            cameraId = device.id;
+                            break;
+                        }
+                    }
+                    if (!cameraId && devices.length > 0) {
+                        cameraId = devices[0].id;
+                    }
+                    
+                    const config = cameraId 
+                        ? { deviceId: { exact: cameraId } }
+                        : { facingMode: "environment" };
+                    
+                    // Ensure container has proper dimensions
+                    readerElement.style.minHeight = '300px';
+                    readerElement.style.width = '100%';
+                    
+                    html5QrCode.start(
+                        config,
+                        {
+                            fps: 10,
+                            qrbox: function(viewfinderWidth, viewfinderHeight) {
+                                // Ensure we have valid dimensions
+                                if (!viewfinderWidth || !viewfinderHeight || viewfinderWidth === 0 || viewfinderHeight === 0) {
+                                    return { width: 250, height: 250 };
+                                }
+                                // Calculate QR box size (70% of smaller dimension)
+                                let minEdgePercentage = 0.7;
+                                let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+                                let qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+                                // Ensure minimum size
+                                if (qrboxSize < 200) qrboxSize = 200;
+                                return {
+                                    width: qrboxSize,
+                                    height: qrboxSize
+                                };
+                            },
+                            aspectRatio: 1.0,
+                            disableFlip: false,
+                            videoConstraints: {
+                                facingMode: "environment",
+                                width: { ideal: 1280 },
+                                height: { ideal: 720 }
+                            }
+                        },
+                        (decodedText, decodedResult) => {
+                            // Successfully scanned
+                            status.innerHTML = '<span style="color: #28a745;">✓ Code scanned!</span>';
+                            document.getElementById('voucher_code').value = decodedText.toUpperCase();
+                            validateVoucher();
+                            setTimeout(() => {
+                                closeQRScanner();
+                            }, 500);
+                        },
+                        (errorMessage) => {
+                            // Scanning in progress - suppress common messages
+                            if (errorMessage) {
+                                if (errorMessage.includes('QR code parse error') || 
+                                    errorMessage.includes('No QR code') || 
+                                    errorMessage.includes('NotFoundException')) {
+                                    // These are normal during scanning, don't show them
+                                    return;
+                                }
+                                // Only show actual errors
+                                if (errorMessage.includes('Error') || errorMessage.includes('Failed')) {
+                                    console.error('QR Scanner error:', errorMessage);
+                                }
+                            }
+                            // Update status to show we're ready
+                            if (status.innerHTML.includes('Starting') || status.innerHTML.includes('Requesting')) {
+                                status.innerHTML = '<span style="color: var(--text-gray);">Position QR code in front of camera</span>';
+                            }
+                        }
+                    ).then(() => {
+                        status.innerHTML = '<span style="color: #28a745;">✓ Camera ready. Position QR code in front of camera</span>';
+                        console.log('QR Scanner started successfully');
+                    }).catch(err => {
+                        let errorMsg = err.toString();
+                        console.error('QR Scanner start error:', err);
+                        
+                        if (errorMsg.includes('Permission denied') || errorMsg.includes('NotAllowedError')) {
+                            status.innerHTML = '<span style="color: #dc3545;">Camera permission denied. Please allow camera access in browser settings and try again.</span>';
+                        } else if (errorMsg.includes('NotFoundError') || errorMsg.includes('DevicesNotFoundError')) {
+                            status.innerHTML = '<span style="color: #dc3545;">No camera found. Please enter code manually.</span>';
+                        } else if (errorMsg.includes('NotReadableError') || errorMsg.includes('TrackStartError')) {
+                            status.innerHTML = '<span style="color: #dc3545;">Camera is being used by another application. Please close other apps using the camera.</span>';
+                        } else {
+                            status.innerHTML = '<span style="color: #dc3545;">Error starting camera: ' + errorMsg + '</span>';
+                        }
+                    });
+                    
+                    window.currentQRScanner = html5QrCode;
+                } else {
+                    status.innerHTML = '<span style="color: #dc3545;">No cameras found. Please enter code manually.</span>';
+                }
+            }).catch(err => {
+                console.error('Error getting cameras:', err);
+                status.innerHTML = '<span style="color: #dc3545;">Error accessing camera: ' + err.message + '</span>';
+            });
+        } catch (e) {
+            status.innerHTML = '<span style="color: #dc3545;">Error initializing scanner: ' + e.message + '</span>';
+            console.error('QR Scanner initialization error:', e);
+        }
+    } else {
+        // Fallback: Show manual entry message
+        status.innerHTML = '<span style="color: #ffc107;">QR scanner library not loaded. Please enter code manually.</span>';
+    }
+}
+
+function closeQRScanner() {
+    // Stop QR scanner first
+    if (window.currentQRScanner) {
+        try {
+            window.currentQRScanner.stop().then(() => {
+                window.currentQRScanner.clear();
+                window.currentQRScanner = null;
+            }).catch(err => {
+                console.error('Error stopping QR scanner:', err);
+                // Force clear even if stop fails
+                try {
+                    window.currentQRScanner.clear();
+                } catch (e) {
+                    console.error('Error clearing QR scanner:', e);
+                }
+                window.currentQRScanner = null;
+            });
+        } catch (e) {
+            console.error('Exception stopping QR scanner:', e);
+            window.currentQRScanner = null;
+        }
+    }
+    
+    // Stop video stream if exists
+    if (qrStream) {
+        qrStream.getTracks().forEach(track => track.stop());
+        qrStream = null;
+    }
+    
+    // Remove modal
+    const modal = document.getElementById('qrScannerModal');
+    if (modal) {
+        modal.remove();
+    }
+    
+    qrScannerActive = false;
+}
 
 // Initialize
 updateCart();

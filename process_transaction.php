@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $cash_change_amount = isset($_POST['cash_change_amount']) ? (float)$_POST['cash_change_amount'] : 0;
     $voucher_id = !empty($_POST['voucher_id']) ? (int)$_POST['voucher_id'] : null;
     $voucher_code = !empty($_POST['voucher_code']) ? strtoupper(trim(sanitizeInput($_POST['voucher_code']))) : '';
+    $voucher_code_id = !empty($_POST['voucher_code_id']) ? (int)$_POST['voucher_code_id'] : null;
     
     if (empty($cart_data) || $total <= 0) {
         $_SESSION['error'] = 'Invalid transaction data';
@@ -43,59 +44,125 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // Validate voucher if provided
     if ($voucher_id && $voucher_code) {
         try {
-            $stmt = $conn->prepare("
-                SELECT * FROM vouchers 
-                WHERE voucher_id = ? AND cafe_id = ? AND is_active = 1
-                AND voucher_code = ?
-                AND (valid_from IS NULL OR valid_from <= CURDATE())
-                AND (valid_until IS NULL OR valid_until >= CURDATE())
-                AND (usage_limit IS NULL OR used_count < usage_limit)
-            ");
-            $stmt->execute([$voucher_id, $cafe_id, $voucher_code]);
-            $voucher = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$voucher) {
-                $_SESSION['error'] = 'Invalid or expired voucher code';
-                header('Location: pos.php');
-                exit();
-            }
-            
-            // Validate minimum order amount
-            if ($voucher['min_order_amount'] > 0 && $subtotal < $voucher['min_order_amount']) {
-                $_SESSION['error'] = 'Voucher requires minimum order of ' . formatCurrency($voucher['min_order_amount']);
-                header('Location: pos.php');
-                exit();
-            }
-            
-            // Validate maximum order amount
-            if ($voucher['max_order_amount'] && $subtotal > $voucher['max_order_amount']) {
-                $_SESSION['error'] = 'Voucher maximum order is ' . formatCurrency($voucher['max_order_amount']);
-                header('Location: pos.php');
-                exit();
-            }
-            
-            // Validate applicable products
-            if (!empty($voucher['applicable_products'])) {
-                $applicable_products = json_decode($voucher['applicable_products'], true);
-                if (is_array($applicable_products)) {
-                    $cart_product_ids = array_column($cart_data, 'id');
-                    $has_applicable = !empty(array_intersect($cart_product_ids, $applicable_products));
-                    if (!$has_applicable) {
-                        $_SESSION['error'] = 'Voucher is not applicable to selected products';
-                        header('Location: pos.php');
-                        exit();
+            // If voucher_code_id is provided, validate unique code
+            if ($voucher_code_id) {
+                $stmt = $conn->prepare("
+                    SELECT vc.*, v.* 
+                    FROM voucher_codes vc
+                    INNER JOIN vouchers v ON vc.voucher_id = v.voucher_id
+                    WHERE vc.code_id = ? AND vc.unique_code = ? AND v.cafe_id = ? 
+                    AND v.is_active = 1
+                    AND (v.valid_from IS NULL OR v.valid_from <= CURDATE())
+                    AND (v.valid_until IS NULL OR v.valid_until >= CURDATE())
+                ");
+                $stmt->execute([$voucher_code_id, $voucher_code, $cafe_id]);
+                $code_data = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$code_data) {
+                    $_SESSION['error'] = 'Invalid or expired voucher code';
+                    header('Location: pos.php');
+                    exit();
+                }
+                
+                // Check usage limit instead of is_used flag
+                if ($code_data['usage_limit'] && $code_data['used_count'] >= $code_data['usage_limit']) {
+                    $_SESSION['error'] = 'Voucher usage limit reached';
+                    header('Location: pos.php');
+                    exit();
+                }
+                
+                $voucher = $code_data;
+                
+                // Validate minimum order amount
+                if ($voucher['min_order_amount'] > 0 && $subtotal < $voucher['min_order_amount']) {
+                    $_SESSION['error'] = 'Voucher requires minimum order of ' . formatCurrency($voucher['min_order_amount']);
+                    header('Location: pos.php');
+                    exit();
+                }
+                
+                // Validate maximum order amount
+                if ($voucher['max_order_amount'] && $subtotal > $voucher['max_order_amount']) {
+                    $_SESSION['error'] = 'Voucher maximum order is ' . formatCurrency($voucher['max_order_amount']);
+                    header('Location: pos.php');
+                    exit();
+                }
+                
+                // Validate applicable products
+                if (!empty($voucher['applicable_products'])) {
+                    $applicable_products = json_decode($voucher['applicable_products'], true);
+                    if (is_array($applicable_products)) {
+                        $cart_product_ids = array_column($cart_data, 'id');
+                        $has_applicable = !empty(array_intersect($cart_product_ids, $applicable_products));
+                        if (!$has_applicable) {
+                            $_SESSION['error'] = 'Voucher is not applicable to selected products';
+                            header('Location: pos.php');
+                            exit();
+                        }
                     }
                 }
-            }
-            
-            // Ensure discount matches voucher
-            if (abs($discount - $voucher['discount_amount']) > 0.01) {
-                $_SESSION['error'] = 'Voucher discount mismatch';
-                header('Location: pos.php');
-                exit();
+                
+                // Ensure discount matches voucher
+                if (abs($discount - $voucher['discount_amount']) > 0.01) {
+                    $_SESSION['error'] = 'Voucher discount mismatch';
+                    header('Location: pos.php');
+                    exit();
+                }
+            } else {
+                // Legacy voucher validation (for backward compatibility)
+                $stmt = $conn->prepare("
+                    SELECT * FROM vouchers 
+                    WHERE voucher_id = ? AND cafe_id = ? AND is_active = 1
+                    AND voucher_code = ?
+                    AND (valid_from IS NULL OR valid_from <= CURDATE())
+                    AND (valid_until IS NULL OR valid_until >= CURDATE())
+                    AND (usage_limit IS NULL OR used_count < usage_limit)
+                ");
+                $stmt->execute([$voucher_id, $cafe_id, $voucher_code]);
+                $voucher = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$voucher) {
+                    $_SESSION['error'] = 'Invalid or expired voucher code';
+                    header('Location: pos.php');
+                    exit();
+                }
+                
+                // Validate minimum order amount
+                if ($voucher['min_order_amount'] > 0 && $subtotal < $voucher['min_order_amount']) {
+                    $_SESSION['error'] = 'Voucher requires minimum order of ' . formatCurrency($voucher['min_order_amount']);
+                    header('Location: pos.php');
+                    exit();
+                }
+                
+                // Validate maximum order amount
+                if ($voucher['max_order_amount'] && $subtotal > $voucher['max_order_amount']) {
+                    $_SESSION['error'] = 'Voucher maximum order is ' . formatCurrency($voucher['max_order_amount']);
+                    header('Location: pos.php');
+                    exit();
+                }
+                
+                // Validate applicable products
+                if (!empty($voucher['applicable_products'])) {
+                    $applicable_products = json_decode($voucher['applicable_products'], true);
+                    if (is_array($applicable_products)) {
+                        $cart_product_ids = array_column($cart_data, 'id');
+                        $has_applicable = !empty(array_intersect($cart_product_ids, $applicable_products));
+                        if (!$has_applicable) {
+                            $_SESSION['error'] = 'Voucher is not applicable to selected products';
+                            header('Location: pos.php');
+                            exit();
+                        }
+                    }
+                }
+                
+                // Ensure discount matches voucher
+                if (abs($discount - $voucher['discount_amount']) > 0.01) {
+                    $_SESSION['error'] = 'Voucher discount mismatch';
+                    header('Location: pos.php');
+                    exit();
+                }
             }
         } catch (Exception $e) {
-            $_SESSION['error'] = 'Voucher validation failed';
+            $_SESSION['error'] = 'Voucher validation failed: ' . $e->getMessage();
             header('Location: pos.php');
             exit();
         }
@@ -450,10 +517,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             throw new Exception("Database error creating payment for order_id {$order_id}: " . $error_msg . ". Order exists: " . json_encode($order_data));
         }
         
-        // Update voucher usage count if voucher was used
+        // Handle voucher usage
         if ($voucher_id) {
+            // Update usage count for the voucher
             $stmt = $conn->prepare("UPDATE vouchers SET used_count = used_count + 1 WHERE voucher_id = ? AND cafe_id = ?");
             $stmt->execute([$voucher_id, $cafe_id]);
+            
+            // If QR code was used, mark it in the voucher_codes table (but don't delete it)
+            if ($voucher_code_id) {
+                try {
+                    $stmt = $conn->prepare("
+                        UPDATE voucher_codes 
+                        SET is_used = 1, used_at = NOW(), used_by_order_id = ? 
+                        WHERE code_id = ? AND voucher_id = ?
+                    ");
+                    $stmt->execute([$order_id, $voucher_code_id, $voucher_id]);
+                } catch (Exception $e) {
+                    error_log("Error updating voucher code usage: " . $e->getMessage());
+                }
+            }
         }
         
         $conn->commit();

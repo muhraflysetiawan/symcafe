@@ -1,14 +1,22 @@
-// Theme colors matching the website
+// Theme colors - Improved modern design
 export const colors = {
-  primaryBlack: '#252525',
+  primaryBlack: '#1A1A1A',
   primaryWhite: '#FFFFFF',
-  accentGray: '#3A3A3A',
-  textGray: '#CCCCCC',
-  borderGray: '#404040',
-  hoverGray: '#2A2A2A',
-  success: '#28a745',
-  error: '#dc3545',
-  warning: '#ffc107',
+  accentGray: '#2D2D2D',
+  textGray: '#B0B0B0',
+  borderGray: '#3A3A3A',
+  hoverGray: '#252525',
+  success: '#10B981',
+  error: '#EF4444',
+  warning: '#F59E0B',
+  primaryBrown: '#8B4513',
+  lightGray: '#F5F5F5',
+  mediumGray: '#E5E5E5',
+  darkGray: '#4A4A4A',
+  background: '#FFFFFF',
+  cardBackground: '#FFFFFF',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#666666',
 };
 
 export const spacing = {

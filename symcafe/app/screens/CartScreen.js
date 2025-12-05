@@ -26,8 +26,16 @@ export default function CartScreen({ route, navigation }) {
 
   const loadCart = async () => {
     const cartData = await storage.getItem('cart');
-    if (cartData) {
-      setCart(cartData);
+    if (cartData && Array.isArray(cartData)) {
+      // Filter cart to show only items from current cafe
+      if (cafe && cafe.cafe_id) {
+        const cafeCart = cartData.filter(item => item.cafe_id === cafe.cafe_id);
+        setCart(cafeCart);
+      } else {
+        setCart([]);
+      }
+    } else {
+      setCart([]);
     }
     setIsLoading(false);
   };
@@ -44,8 +52,20 @@ export default function CartScreen({ route, navigation }) {
   };
 
   const saveCart = async (newCart) => {
-    await storage.setItem('cart', newCart);
-    setCart(newCart);
+    // Get existing cart and merge with updated items from current cafe
+    try {
+      const existingCart = await storage.getItem('cart') || [];
+      // Remove items from current cafe (to replace with updated cart)
+      const otherCafeItems = existingCart.filter(item => !item.cafe_id || item.cafe_id !== cafe.cafe_id);
+      // Combine with updated cart items
+      const mergedCart = [...otherCafeItems, ...newCart];
+      await storage.setItem('cart', mergedCart);
+      setCart(newCart);
+    } catch (error) {
+      console.error('Error saving cart:', error);
+      await storage.setItem('cart', newCart);
+      setCart(newCart);
+    }
   };
 
   const updateQuantity = (index, change) => {
@@ -217,7 +237,7 @@ export default function CartScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primaryBlack,
+    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
@@ -228,23 +248,30 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   cartItem: {
-    backgroundColor: colors.accentGray,
-    borderRadius: 8,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.borderGray,
+    borderColor: colors.mediumGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   itemInfo: {
     marginBottom: spacing.sm,
   },
   itemName: {
-    ...typography.body,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
   itemPrice: {
-    ...typography.caption,
+    fontSize: 14,
+    color: colors.textSecondary,
     marginBottom: spacing.xs,
   },
   itemOptions: {
@@ -334,16 +361,22 @@ const styles = StyleSheet.create({
     color: colors.success,
   },
   checkoutButton: {
-    backgroundColor: colors.primaryWhite,
-    padding: spacing.md,
-    borderRadius: 5,
+    backgroundColor: colors.primaryBrown,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
   checkoutButtonText: {
-    color: colors.primaryBlack,
-    fontWeight: '600',
-    fontSize: 16,
+    color: colors.primaryWhite,
+    fontWeight: '700',
+    fontSize: 18,
   },
   emptyContainer: {
     flex: 1,

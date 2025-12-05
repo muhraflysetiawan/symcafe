@@ -116,9 +116,15 @@ try {
             $stmt->execute([$item_id]);
             $product_addons[$item_id] = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-            // Convert image path to full URL
-            if ($product['image'] && file_exists($product['image'])) {
-                $product['image_url'] = BASE_URL . $product['image'];
+            // Return relative image path - let client construct full URL
+            // This allows mobile app to use its own BASE_URL (with IP address instead of localhost)
+            if (!empty($product['image'])) {
+                $image_path = __DIR__ . '/../' . $product['image'];
+                if (file_exists($image_path)) {
+                    $product['image_url'] = $product['image']; // Return relative path
+                } else {
+                    $product['image_url'] = null;
+                }
             } else {
                 $product['image_url'] = null;
             }
@@ -128,9 +134,14 @@ try {
         error_log("Error fetching variations/addons: " . $e->getMessage());
     }
     
-    // Convert cafe logo to full URL
-    if ($cafe['logo'] && file_exists($cafe['logo'])) {
-        $cafe['logo_url'] = BASE_URL . $cafe['logo'];
+    // Return relative logo path - let client construct full URL
+    if (!empty($cafe['logo'])) {
+        $logo_path = __DIR__ . '/../' . $cafe['logo'];
+        if (file_exists($logo_path)) {
+            $cafe['logo_url'] = $cafe['logo']; // Return relative path
+        } else {
+            $cafe['logo_url'] = null;
+        }
     } else {
         $cafe['logo_url'] = null;
     }

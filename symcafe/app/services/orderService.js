@@ -8,14 +8,36 @@ export const orderService = {
       // Get user_id from AsyncStorage for mobile authentication
       const userData = await AsyncStorage.getItem('userData');
       const user = userData ? JSON.parse(userData) : null;
-      const userId = user?.id;
       
-      console.log('[orderService] User data:', { hasUser: !!user, userId });
+      // Try different possible field names for user ID
+      const userId = user?.user_id || user?.id || user?.userId;
       
-      // Add user_id to order data if available (for mobile auth)
-      const orderDataWithUser = userId ? { ...orderData, user_id: userId } : orderData;
+      console.log('[orderService] User data check:', { 
+        hasUser: !!user, 
+        userId,
+        userKeys: user ? Object.keys(user) : [],
+        userData: user
+      });
+      
+      if (!userId) {
+        console.error('[orderService] No user_id found in user data!');
+        console.error('[orderService] Available user fields:', user);
+        throw new Error('User not authenticated. Please login again.');
+      }
+      
+      // Add user_id to order data (for mobile auth)
+      const orderDataWithUser = { 
+        ...orderData, 
+        user_id: parseInt(userId) // Ensure it's an integer
+      };
       
       console.log('[orderService] Placing order with user_id:', userId);
+      console.log('[orderService] Order data:', {
+        cafe_id: orderDataWithUser.cafe_id,
+        user_id: orderDataWithUser.user_id,
+        cart_items: orderDataWithUser.cart?.length,
+        total: orderDataWithUser.total
+      });
       const response = await api.post(API_ENDPOINTS.PLACE_ORDER, orderDataWithUser);
       
       // Handle case where response.data might be a string (if PHP notices were included)

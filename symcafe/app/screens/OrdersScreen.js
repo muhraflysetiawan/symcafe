@@ -182,7 +182,7 @@ export default function OrdersScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primaryBlack,
+    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
@@ -193,12 +193,17 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   orderCard: {
-    backgroundColor: colors.accentGray,
-    borderRadius: 8,
-    padding: spacing.md,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.borderGray,
+    borderColor: colors.mediumGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   orderHeader: {
     flexDirection: 'row',
