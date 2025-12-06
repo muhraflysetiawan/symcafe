@@ -6,10 +6,15 @@ import {
   ScrollView,
   TouchableOpacity,
   Share,
+  Image,
+  Linking,
+  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { formatCurrency } from '../utils/currency';
 import { colors, spacing, typography } from '../constants/theme';
 import { BASE_URL } from '../config/api';
+import BottomNav from '../components/BottomNav';
 
 const getStatusColor = (status) => {
   switch (status?.toLowerCase()) {
@@ -38,7 +43,7 @@ const getStatusLabel = (status) => {
     .join(' ');
 };
 
-export default function OrderDetailScreen({ route }) {
+export default function OrderDetailScreen({ route, navigation }) {
   const { order } = route.params;
 
   const handleShare = async () => {
@@ -52,12 +57,27 @@ export default function OrderDetailScreen({ route }) {
     }
   };
 
+  const handleViewReceipt = async () => {
+    try {
+      const receiptUrl = `${BASE_URL}receipt.php?order_id=${order.order_id}`;
+      const supported = await Linking.canOpenURL(receiptUrl);
+      if (supported) {
+        await Linking.openURL(receiptUrl);
+      } else {
+        Alert.alert('Error', 'Cannot open receipt URL');
+      }
+    } catch (error) {
+      console.error('Error opening receipt:', error);
+      Alert.alert('Error', 'Failed to open receipt');
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Order Header */}
-      <View style={styles.section}>
-        <View style={styles.headerRow}>
-          <View>
+      {/* Order Header with Status */}
+      <View style={styles.headerSection}>
+        <View style={styles.headerTop}>
+          <View style={styles.headerLeft}>
             <Text style={styles.orderId}>
               Order #{String(order.order_id).padStart(6, '0')}
             </Text>
@@ -79,16 +99,37 @@ export default function OrderDetailScreen({ route }) {
         </View>
       </View>
 
-      {/* Cafe Info */}
+      {/* Cafe Info with Logo */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Store Information</Text>
-        <Text style={styles.infoText}>{order.cafe_name}</Text>
-        {order.cafe_address && (
-          <Text style={styles.infoSubtext}>📍 {order.cafe_address}</Text>
-        )}
-        {order.cafe_phone && (
-          <Text style={styles.infoSubtext}>📞 {order.cafe_phone}</Text>
-        )}
+        <View style={styles.cafeInfoRow}>
+          {order.logo_url ? (
+            <Image 
+              source={{ uri: BASE_URL + order.logo_url }} 
+              style={styles.cafeLogo}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.cafeLogoPlaceholder}>
+              <Ionicons name="storefront" size={32} color={colors.textGray} />
+            </View>
+          )}
+          <View style={styles.cafeInfo}>
+            <Text style={styles.infoText}>{order.cafe_name}</Text>
+            {order.cafe_address && (
+              <View style={styles.infoRow}>
+                <Ionicons name="location" size={14} color={colors.textGray} />
+                <Text style={styles.infoSubtext}>{order.cafe_address}</Text>
+              </View>
+            )}
+            {order.cafe_phone && (
+              <View style={styles.infoRow}>
+                <Ionicons name="call" size={14} color={colors.textGray} />
+                <Text style={styles.infoSubtext}>{order.cafe_phone}</Text>
+              </View>
+            )}
+          </View>
+        </View>
       </View>
 
       {/* Order Items */}
@@ -179,10 +220,20 @@ export default function OrderDetailScreen({ route }) {
         </View>
       </View>
 
-      {/* Share Button */}
-      <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
-        <Text style={styles.shareButtonText}>Share Order</Text>
-      </TouchableOpacity>
+      {/* Action Buttons */}
+      <View style={styles.actionButtons}>
+        <TouchableOpacity style={styles.receiptButton} onPress={handleViewReceipt}>
+          <Ionicons name="receipt" size={20} color={colors.primaryWhite} />
+          <Text style={styles.receiptButtonText}>View Receipt</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+          <Ionicons name="share-social" size={20} color={colors.primaryWhite} />
+          <Text style={styles.shareButtonText}>Share Order</Text>
+        </TouchableOpacity>
+      </View>
+      
+      {/* Bottom Navigation */}
+      <BottomNav />
     </ScrollView>
   );
 }
@@ -190,55 +241,111 @@ export default function OrderDetailScreen({ route }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primaryBlack,
+    backgroundColor: colors.background,
   },
   content: {
     padding: spacing.md,
+    paddingBottom: spacing.xl,
   },
-  section: {
-    backgroundColor: colors.accentGray,
-    borderRadius: 8,
-    padding: spacing.md,
+  headerSection: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.borderGray,
+    borderColor: colors.mediumGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  headerRow: {
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
+  headerLeft: {
+    flex: 1,
+  },
   orderId: {
     ...typography.h2,
+    color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
   orderDate: {
     ...typography.caption,
-    color: colors.textGray,
+    color: colors.textSecondary,
   },
   statusBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: 4,
+    borderRadius: 6,
+    marginLeft: spacing.sm,
   },
   statusText: {
     ...typography.small,
     color: colors.primaryBlack,
     fontWeight: '600',
   },
+  section: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.mediumGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
   sectionTitle: {
     ...typography.h3,
+    color: colors.textPrimary,
     marginBottom: spacing.md,
+    fontWeight: '600',
+  },
+  cafeInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  cafeLogo: {
+    width: 70,
+    height: 70,
+    borderRadius: 12,
+    marginRight: spacing.md,
+    backgroundColor: colors.lightGray,
+  },
+  cafeLogoPlaceholder: {
+    width: 70,
+    height: 70,
+    borderRadius: 12,
+    marginRight: spacing.md,
+    backgroundColor: colors.lightGray,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cafeInfo: {
+    flex: 1,
   },
   infoText: {
     ...typography.body,
     fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: spacing.xs,
   },
   infoSubtext: {
     ...typography.caption,
-    color: colors.textGray,
-    marginBottom: spacing.xs,
+    color: colors.textSecondary,
+    marginLeft: spacing.xs,
+    flex: 1,
   },
   itemRow: {
     flexDirection: 'row',
@@ -246,7 +353,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.borderGray,
+    borderBottomColor: colors.mediumGray,
   },
   itemInfo: {
     flex: 1,
@@ -255,16 +362,17 @@ const styles = StyleSheet.create({
   itemName: {
     ...typography.body,
     fontWeight: '600',
+    color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
   itemOptions: {
     ...typography.small,
-    color: colors.textGray,
+    color: colors.textSecondary,
     marginBottom: spacing.xs,
   },
   itemQuantity: {
     ...typography.caption,
-    color: colors.textGray,
+    color: colors.textSecondary,
   },
   itemTotal: {
     ...typography.body,
@@ -279,16 +387,17 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     ...typography.body,
-    color: colors.textGray,
+    color: colors.textSecondary,
   },
   detailValue: {
     ...typography.body,
     fontWeight: '600',
+    color: colors.textPrimary,
   },
   paymentBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: 4,
+    borderRadius: 6,
   },
   paymentText: {
     ...typography.small,
@@ -297,11 +406,15 @@ const styles = StyleSheet.create({
   },
   notesContainer: {
     marginTop: spacing.sm,
+    padding: spacing.sm,
+    backgroundColor: colors.lightGray,
+    borderRadius: 8,
   },
   notesText: {
     ...typography.body,
     marginTop: spacing.xs,
     fontStyle: 'italic',
+    color: colors.textPrimary,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -310,32 +423,64 @@ const styles = StyleSheet.create({
   },
   summaryLabel: {
     ...typography.body,
-    color: colors.textGray,
+    color: colors.textSecondary,
   },
   summaryValue: {
     ...typography.body,
+    color: colors.textPrimary,
   },
   totalRow: {
     marginTop: spacing.sm,
     paddingTop: spacing.sm,
     borderTopWidth: 2,
-    borderTopColor: colors.borderGray,
+    borderTopColor: colors.mediumGray,
   },
   totalLabel: {
     ...typography.h3,
+    color: colors.textPrimary,
   },
   totalValue: {
     ...typography.h2,
     color: colors.success,
+    fontWeight: 'bold',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.xl,
+  },
+  receiptButton: {
+    flex: 1,
+    backgroundColor: colors.primaryBrown,
+    padding: spacing.md,
+    borderRadius: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  receiptButtonText: {
+    ...typography.body,
+    color: colors.primaryWhite,
+    fontWeight: '600',
   },
   shareButton: {
+    flex: 1,
     backgroundColor: colors.accentGray,
     padding: spacing.md,
-    borderRadius: 5,
+    borderRadius: 8,
     alignItems: 'center',
-    marginBottom: spacing.xl,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.xs,
     borderWidth: 1,
-    borderColor: colors.borderGray,
+    borderColor: colors.mediumGray,
   },
   shareButtonText: {
     ...typography.body,

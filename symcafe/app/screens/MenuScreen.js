@@ -16,6 +16,7 @@ import { formatCurrency } from '../utils/currency';
 import { colors, spacing, typography } from '../constants/theme';
 import { storage } from '../utils/storage';
 import { BASE_URL } from '../config/api';
+import BottomNav from '../components/BottomNav';
 
 export default function MenuScreen({ route, navigation }) {
   const { cafe } = route.params || {};
@@ -86,13 +87,20 @@ export default function MenuScreen({ route, navigation }) {
       const cartData = await storage.getItem('cart');
       if (cartData && Array.isArray(cartData)) {
         // Filter cart to show only items from current cafe
+        // CRITICAL: Only show items that match the current cafe_id
         if (cafe && cafe.cafe_id) {
-          const cafeCart = cartData.filter(item => item.cafe_id === cafe.cafe_id);
+          const cafeCart = cartData.filter(item => {
+            // Strict check: item must have cafe_id and it must match current cafe
+            return item && item.cafe_id && item.cafe_id === cafe.cafe_id;
+          });
+          console.log(`[MenuScreen] Loaded cart for cafe ${cafe.cafe_id}: ${cafeCart.length} items`);
           setCart(cafeCart);
         } else {
+          console.log('[MenuScreen] No cafe_id, clearing cart');
           setCart([]);
         }
       } else {
+        console.log('[MenuScreen] No cart data, clearing cart');
         setCart([]);
       }
     } catch (error) {
@@ -101,10 +109,23 @@ export default function MenuScreen({ route, navigation }) {
     }
   }, [cafe]);
 
+  // Reload cart when screen comes into focus (e.g., when returning from cart/checkout)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      // Reload cart when screen comes into focus to ensure it's current
+      if (cafe && cafe.cafe_id) {
+        loadCart();
+      }
+    });
+    
+    return unsubscribe;
+  }, [navigation, cafe, loadCart]);
+
   // Load menu when cafe is available - only once per cafe
   useEffect(() => {
     if (!cafe || !cafe.cafe_id) {
       setIsLoading(false);
+      setCart([]); // Clear cart if no cafe
       return;
     }
     
@@ -112,6 +133,8 @@ export default function MenuScreen({ route, navigation }) {
     const currentCafeId = cafe.cafe_id;
     hasLoadedRef.current = false;
     isLoadingRef.current = false;
+    // Clear cart state when switching cafes to prevent showing wrong items
+    setCart([]);
     
     let isMounted = true;
     
@@ -181,19 +204,9 @@ export default function MenuScreen({ route, navigation }) {
         }
       }
       
-      // Load cart
+      // Load cart - use loadCart function to ensure proper filtering by cafe
       if (isMounted) {
-        try {
-          const cartData = await storage.getItem('cart');
-          if (cartData && Array.isArray(cartData)) {
-            setCart(cartData);
-          } else {
-            setCart([]);
-          }
-        } catch (error) {
-          console.error('Cart load error:', error);
-          setCart([]);
-        }
+        loadCart();
       }
     };
     
@@ -205,19 +218,50 @@ export default function MenuScreen({ route, navigation }) {
   }, [cafe?.cafe_id]); // Only depend on cafe_id
 
   const saveCart = async (newCart) => {
+    // Ensure all items in newCart have cafe_id set to current cafe
+    let validatedCart = newCart.map(item => ({
+      ...item,
+      cafe_id: item.cafe_id || cafe.cafe_id, // Ensure cafe_id is set
+      cafe: item.cafe || cafe, // Ensure cafe object is set
+    }));
+    
+    // Validate: All items must belong to the current cafe
+    const invalidItems = validatedCart.filter(item => item.cafe_id !== cafe.cafe_id);
+    if (invalidItems.length > 0) {
+      console.error('[MenuScreen] ERROR: Attempted to save items from different cafe!', {
+        currentCafe: cafe.cafe_id,
+        invalidItems: invalidItems.map(i => ({ id: i.id, cafe_id: i.cafe_id }))
+      });
+      // Remove invalid items
+      validatedCart = validatedCart.filter(item => item.cafe_id === cafe.cafe_id);
+    }
+    
     // Get existing cart and merge with new items from current cafe
     try {
       const existingCart = await storage.getItem('cart') || [];
       // Remove items from current cafe (to replace with new cart)
-      const otherCafeItems = existingCart.filter(item => !item.cafe_id || item.cafe_id !== cafe.cafe_id);
-      // Combine with new cart items
-      const mergedCart = [...otherCafeItems, ...newCart];
+      // This ensures carts are separate - items from other cafes are preserved
+      const otherCafeItems = existingCart.filter(item => {
+        // Keep items that have a different cafe_id (strict check - no legacy items)
+        return item && item.cafe_id && item.cafe_id !== cafe.cafe_id;
+      });
+      
+      console.log(`[MenuScreen] Saving cart for cafe ${cafe.cafe_id}:`, {
+        newItems: validatedCart.length,
+        otherCafeItems: otherCafeItems.length,
+        totalItems: otherCafeItems.length + validatedCart.length
+      });
+      
+      // Combine with new cart items - DO NOT merge quantities across cafes
+      const mergedCart = [...otherCafeItems, ...validatedCart];
       await storage.setItem('cart', mergedCart);
-      setCart(newCart);
+      // Update local state with only current cafe's items
+      setCart(validatedCart);
     } catch (error) {
       console.error('Error saving cart:', error);
-      await storage.setItem('cart', newCart);
-      setCart(newCart);
+      // On error, save only current cafe's cart
+      await storage.setItem('cart', validatedCart);
+      setCart(validatedCart);
     }
   };
 
@@ -288,13 +332,16 @@ export default function MenuScreen({ route, navigation }) {
     const addonKeys = selectedAddons.sort((a, b) => a.addon_id - b.addon_id).map(a => a.addon_id).join(',');
     const cartKey = `${selectedProduct.item_id}_${varKeys}_${addonKeys}`;
     
-    // Check if item already in cart
-    const existingItem = cart.find(item => item.cartKey === cartKey);
+    // Check if item already in cart (only check current cafe's cart)
+    // Ensure we're only checking items from the current cafe
+    const currentCafeCart = cart.filter(item => item.cafe_id === cafe.cafe_id);
+    const existingItem = currentCafeCart.find(item => item.cartKey === cartKey);
     
     let newCart;
     if (existingItem) {
+      // Update quantity in current cafe's cart only
       newCart = cart.map(item =>
-        item.cartKey === cartKey
+        (item.cartKey === cartKey && item.cafe_id === cafe.cafe_id)
           ? { ...item, quantity: item.quantity + 1 }
           : item
       );
@@ -311,6 +358,7 @@ export default function MenuScreen({ route, navigation }) {
         cafe_id: cafe.cafe_id, // Store cafe_id to ensure per-cafe carts
         cafe: cafe, // Store full cafe object for navigation
       };
+      // Only add to current cafe's cart, preserve other cafes' carts
       newCart = [...cart, cartItem];
     }
     
@@ -320,7 +368,17 @@ export default function MenuScreen({ route, navigation }) {
   };
 
   const getCartCount = () => {
-    return cart.reduce((sum, item) => sum + item.quantity, 0);
+    // Only count items from the current cafe
+    // Double-check: ensure we're only counting items that match the current cafe_id
+    if (!cafe || !cafe.cafe_id) return 0;
+    
+    // Filter and count only items from current cafe
+    const currentCafeItems = cart.filter(item => {
+      // Strict check: item must have cafe_id and it must match current cafe
+      return item && item.cafe_id && item.cafe_id === cafe.cafe_id;
+    });
+    
+    return currentCafeItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
   };
 
   const groupProductsByCategory = () => {
@@ -341,24 +399,61 @@ export default function MenuScreen({ route, navigation }) {
     }));
   };
 
-  const renderProduct = ({ item }) => (
-    <TouchableOpacity
-      style={styles.productCard}
-      onPress={() => openProductModal(item)}
-    >
-      {item.image_url ? (
-        <Image source={{ uri: BASE_URL + item.image_url }} style={styles.productImage} />
-      ) : (
-        <View style={styles.placeholderImage}>
-          <Text style={styles.placeholderText}>No Image</Text>
+  // Product Item Component (separate component to use hooks)
+  const ProductItem = ({ item, onPress }) => {
+    const [imageError, setImageError] = React.useState(false);
+    const [imageLoading, setImageLoading] = React.useState(true);
+    const imageUrl = item.image_url ? BASE_URL + item.image_url : null;
+    
+    return (
+      <TouchableOpacity
+        style={styles.productCard}
+        onPress={() => onPress(item)}
+      >
+        {imageUrl && !imageError ? (
+          <View style={styles.imageContainer}>
+            {imageLoading && (
+              <View style={styles.imageLoadingPlaceholder}>
+                <Text style={styles.placeholderText}>Loading...</Text>
+              </View>
+            )}
+            <Image 
+              source={{ uri: imageUrl }} 
+              style={[styles.productImage, imageLoading && styles.imageHidden]}
+              resizeMode="cover"
+              onError={(error) => {
+                console.log('Product image load error:', error.nativeEvent.error);
+                console.log('Image URL attempted:', imageUrl);
+                console.log('BASE_URL:', BASE_URL);
+                console.log('item.image_url:', item.image_url);
+                setImageError(true);
+                setImageLoading(false);
+              }}
+              onLoad={() => {
+                console.log('Product image loaded successfully:', imageUrl);
+                setImageLoading(false);
+              }}
+              onLoadStart={() => {
+                setImageLoading(true);
+              }}
+            />
+          </View>
+        ) : (
+          <View style={styles.placeholderImage}>
+            <Text style={styles.placeholderText}>No Image</Text>
+          </View>
+        )}
+        <View style={styles.productInfo}>
+          <Text style={styles.productName}>{item.item_name}</Text>
+          <Text style={styles.productStock}>Stock: {item.stock}</Text>
+          <Text style={styles.productPrice}>{formatCurrency(item.price)}</Text>
         </View>
-      )}
-      <View style={styles.productInfo}>
-        <Text style={styles.productName}>{item.item_name}</Text>
-        <Text style={styles.productStock}>Stock: {item.stock}</Text>
-        <Text style={styles.productPrice}>{formatCurrency(item.price)}</Text>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderProduct = ({ item }) => (
+    <ProductItem item={item} onPress={openProductModal} />
   );
 
   // Show error state
@@ -583,6 +678,9 @@ export default function MenuScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+      
+      {/* Bottom Navigation */}
+      <BottomNav />
     </View>
   );
 }
@@ -598,31 +696,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cafeInfo: {
-    backgroundColor: colors.accentGray,
-    padding: spacing.md,
+    backgroundColor: colors.primaryBrown,
+    padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderGray,
+    borderBottomWidth: 0,
   },
   cafeLogo: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
+    width: 70,
+    height: 70,
+    borderRadius: 12,
     marginRight: spacing.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   cafeDetails: {
     flex: 1,
   },
   cafeName: {
-    ...typography.h3,
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.primaryWhite,
     marginBottom: spacing.xs,
   },
   cafeAddress: {
-    ...typography.caption,
+    fontSize: 14,
+    color: colors.primaryWhite,
+    opacity: 0.9,
   },
   listContent: {
     padding: spacing.md,
+    paddingBottom: 160, // Extra padding for cart button (80px) + bottom nav (60px) + spacing (20px)
   },
   categorySection: {
     marginBottom: spacing.xl,
@@ -653,11 +756,28 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  imageContainer: {
+    width: '100%',
+    height: 160,
+    position: 'relative',
+    backgroundColor: colors.lightGray,
+  },
   productImage: {
     width: '100%',
     height: 160,
+    backgroundColor: 'transparent',
+  },
+  imageHidden: {
+    opacity: 0,
+  },
+  imageLoadingPlaceholder: {
+    position: 'absolute',
+    width: '100%',
+    height: 160,
     backgroundColor: colors.lightGray,
-    resizeMode: 'cover',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
   },
   placeholderImage: {
     width: '100%',
@@ -691,7 +811,7 @@ const styles = StyleSheet.create({
   },
   cartButton: {
     position: 'absolute',
-    bottom: spacing.md,
+    bottom: 80, // Position above bottom nav (60px height + 20px spacing)
     right: spacing.md,
     backgroundColor: colors.primaryBrown,
     paddingVertical: spacing.md,
@@ -704,6 +824,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
+    zIndex: 10,
   },
   cartButtonText: {
     color: colors.primaryWhite,
@@ -722,19 +843,24 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: spacing.lg,
     maxHeight: '80%',
+    width: '90%',
     width: '100%',
   },
   modalTitle: {
-    ...typography.h2,
-    marginBottom: spacing.md,
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: spacing.lg,
+    textAlign: 'center',
   },
   variationSection: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   variationLabel: {
-    ...typography.body,
-    fontWeight: '600',
-    marginBottom: spacing.sm,
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
   },
   required: {
     color: colors.warning,
@@ -743,94 +869,116 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: colors.accentGray,
-    padding: spacing.sm,
-    borderRadius: 5,
-    marginBottom: spacing.xs,
+    backgroundColor: colors.lightGray,
+    padding: spacing.md,
+    borderRadius: 8,
+    marginBottom: spacing.sm,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.mediumGray,
   },
   optionButtonSelected: {
-    borderColor: colors.primaryWhite,
+    borderColor: colors.primaryBrown,
+    backgroundColor: '#FFF8F0',
   },
   optionText: {
-    ...typography.body,
+    fontSize: 16,
+    color: colors.textPrimary,
     flex: 1,
+    fontWeight: '500',
   },
   optionPrice: {
-    ...typography.caption,
+    fontSize: 14,
     color: colors.error,
+    fontWeight: '600',
   },
   optionPricePositive: {
     color: colors.success,
+    fontWeight: '600',
   },
   addonsSection: {
     marginBottom: spacing.md,
   },
   addonsLabel: {
-    ...typography.body,
-    fontWeight: '600',
-    marginBottom: spacing.sm,
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
   },
   addonButton: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: colors.accentGray,
-    padding: spacing.sm,
-    borderRadius: 5,
-    marginBottom: spacing.xs,
+    backgroundColor: colors.lightGray,
+    padding: spacing.md,
+    borderRadius: 8,
+    marginBottom: spacing.sm,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.mediumGray,
+    alignItems: 'center',
   },
   addonButtonSelected: {
-    borderColor: colors.primaryWhite,
+    borderColor: colors.primaryBrown,
+    backgroundColor: '#FFF8F0',
   },
   addonText: {
-    ...typography.body,
+    fontSize: 16,
+    color: colors.textPrimary,
     flex: 1,
+    fontWeight: '500',
   },
   addonPrice: {
-    ...typography.body,
-    fontWeight: '600',
+    fontSize: 16,
+    color: colors.primaryBrown,
+    fontWeight: '700',
   },
   modalTotal: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: spacing.md,
-    marginTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderGray,
+    paddingTop: spacing.lg,
+    marginTop: spacing.lg,
+    borderTopWidth: 2,
+    borderTopColor: colors.mediumGray,
   },
   totalLabel: {
-    ...typography.h3,
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.textPrimary,
   },
   totalPrice: {
-    ...typography.h2,
-    color: colors.success,
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.primaryBrown,
   },
   addButton: {
-    backgroundColor: colors.primaryWhite,
-    padding: spacing.md,
-    borderRadius: 5,
+    backgroundColor: colors.primaryBrown,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  addButtonText: {
+    color: colors.primaryWhite,
+    fontWeight: '700',
+    fontSize: 18,
+  },
+  closeButton: {
+    backgroundColor: colors.mediumGray,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: spacing.md,
   },
-  addButtonText: {
-    color: colors.primaryBlack,
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  closeButton: {
-    backgroundColor: colors.accentGray,
-    padding: spacing.md,
-    borderRadius: 5,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
   closeButtonText: {
-    ...typography.body,
+    fontSize: 16,
     color: colors.primaryWhite,
+    fontWeight: '600',
   },
 });
 

@@ -12,6 +12,7 @@ import { cafeService } from '../services/cafeService';
 import { formatCurrency } from '../utils/currency';
 import { colors, spacing, typography } from '../constants/theme';
 import { storage } from '../utils/storage';
+import BottomNav from '../components/BottomNav';
 
 export default function CartScreen({ route, navigation }) {
   const { cafe } = route.params;
@@ -28,8 +29,12 @@ export default function CartScreen({ route, navigation }) {
     const cartData = await storage.getItem('cart');
     if (cartData && Array.isArray(cartData)) {
       // Filter cart to show only items from current cafe
+      // This ensures carts are completely separate - no merging
       if (cafe && cafe.cafe_id) {
-        const cafeCart = cartData.filter(item => item.cafe_id === cafe.cafe_id);
+        const cafeCart = cartData.filter(item => {
+          // Only show items that belong to the current cafe
+          return item.cafe_id === cafe.cafe_id;
+        });
         setCart(cafeCart);
       } else {
         setCart([]);
@@ -52,19 +57,31 @@ export default function CartScreen({ route, navigation }) {
   };
 
   const saveCart = async (newCart) => {
+    // Ensure all items in newCart have cafe_id set to current cafe
+    const validatedCart = newCart.map(item => ({
+      ...item,
+      cafe_id: item.cafe_id || cafe.cafe_id, // Ensure cafe_id is set
+      cafe: item.cafe || cafe, // Ensure cafe object is set
+    }));
+    
     // Get existing cart and merge with updated items from current cafe
     try {
       const existingCart = await storage.getItem('cart') || [];
       // Remove items from current cafe (to replace with updated cart)
-      const otherCafeItems = existingCart.filter(item => !item.cafe_id || item.cafe_id !== cafe.cafe_id);
-      // Combine with updated cart items
-      const mergedCart = [...otherCafeItems, ...newCart];
+      // This ensures carts are separate - items from other cafes are preserved
+      const otherCafeItems = existingCart.filter(item => {
+        // Keep items that have a different cafe_id or no cafe_id (legacy items)
+        return item.cafe_id && item.cafe_id !== cafe.cafe_id;
+      });
+      // Combine with updated cart items - DO NOT merge quantities across cafes
+      const mergedCart = [...otherCafeItems, ...validatedCart];
       await storage.setItem('cart', mergedCart);
-      setCart(newCart);
+      setCart(validatedCart);
     } catch (error) {
       console.error('Error saving cart:', error);
-      await storage.setItem('cart', newCart);
-      setCart(newCart);
+      // On error, save only current cafe's cart
+      await storage.setItem('cart', validatedCart);
+      setCart(validatedCart);
     }
   };
 
@@ -210,6 +227,7 @@ export default function CartScreen({ route, navigation }) {
             contentContainerStyle={styles.listContent}
           />
           
+          {/* Summary Section - Fixed above bottom nav */}
           <View style={styles.summary}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal:</Text>
@@ -230,6 +248,9 @@ export default function CartScreen({ route, navigation }) {
           </View>
         </>
       )}
+      
+      {/* Bottom Navigation */}
+      <BottomNav />
     </View>
   );
 }
@@ -246,6 +267,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: spacing.md,
+    paddingBottom: 280, // Extra padding for summary section (220px) + bottom nav (60px)
   },
   cartItem: {
     backgroundColor: colors.cardBackground,
@@ -330,10 +352,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   summary: {
+    position: 'absolute',
+    bottom: 60, // Position above bottom nav
+    left: 0,
+    right: 0,
     backgroundColor: colors.accentGray,
     padding: spacing.md,
+    paddingBottom: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.borderGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 10,
   },
   summaryRow: {
     flexDirection: 'row',

@@ -8,10 +8,13 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Image,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { orderService } from '../services/orderService';
 import { formatCurrency } from '../utils/currency';
 import { colors, spacing, typography } from '../constants/theme';
+import { BASE_URL } from '../config/api';
 
 const getStatusColor = (status) => {
   switch (status?.toLowerCase()) {
@@ -104,42 +107,79 @@ export default function OrdersScreen({ navigation }) {
       <TouchableOpacity
         style={styles.orderCard}
         onPress={() => handleOrderPress(item)}
+        activeOpacity={0.7}
       >
-        <View style={styles.orderHeader}>
-          <View>
-            <Text style={styles.orderId}>
-              Order #{String(item.order_id).padStart(6, '0')}
-            </Text>
-            <Text style={styles.orderDate}>
-              {new Date(item.created_at).toLocaleString('id-ID', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
+        <View style={styles.orderCardContent}>
+          {/* Cafe Logo and Info */}
+          <View style={styles.cafeInfoRow}>
+            {item.logo_url ? (
+              <Image 
+                source={{ uri: BASE_URL + item.logo_url }} 
+                style={styles.cafeLogo}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.cafeLogoPlaceholder}>
+                <Ionicons name="storefront" size={24} color={colors.textGray} />
+              </View>
+            )}
+            <View style={styles.cafeInfo}>
+              <Text style={styles.cafeName}>{item.cafe_name}</Text>
+              {item.cafe_address && (
+                <Text style={styles.cafeAddress} numberOfLines={1}>
+                  <Ionicons name="location" size={12} color={colors.textGray} /> {item.cafe_address}
+                </Text>
+              )}
+            </View>
+          </View>
+          
+          {/* Order Header */}
+          <View style={styles.orderHeader}>
+            <View style={styles.orderHeaderLeft}>
+              <Text style={styles.orderId}>
+                Order #{String(item.order_id).padStart(6, '0')}
+              </Text>
+              <Text style={styles.orderDate}>
+                {new Date(item.created_at).toLocaleString('id-ID', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+              <Text style={styles.statusText}>{statusLabel}</Text>
+            </View>
+          </View>
+          
+          {/* Order Type */}
+          <View style={styles.orderTypeContainer}>
+            <Ionicons name="restaurant" size={14} color={colors.textGray} />
+            <Text style={styles.orderType}>
+              {item.order_type?.charAt(0).toUpperCase() + item.order_type?.slice(1) || 'Take Away'}
             </Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            <Text style={styles.statusText}>{statusLabel}</Text>
-          </View>
-        </View>
-        
-        <View style={styles.orderInfo}>
-          <Text style={styles.cafeName}>{item.cafe_name}</Text>
-          <Text style={styles.orderType}>
-            {item.order_type?.charAt(0).toUpperCase() + item.order_type?.slice(1) || 'Take Away'}
-          </Text>
-        </View>
-        
-        <View style={styles.orderFooter}>
-          <Text style={styles.orderTotal}>{formatCurrency(item.total_amount)}</Text>
-          <View style={[styles.paymentBadge, {
-            backgroundColor: item.payment_status === 'paid' ? colors.success : colors.warning,
-          }]}>
-            <Text style={styles.paymentText}>
-              {item.payment_status === 'paid' ? 'Paid' : 'Unpaid'}
-            </Text>
+          
+          {/* Order Footer */}
+          <View style={styles.orderFooter}>
+            <View>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.orderTotal}>{formatCurrency(item.total_amount)}</Text>
+            </View>
+            <View style={[styles.paymentBadge, {
+              backgroundColor: item.payment_status === 'paid' ? colors.success : colors.warning,
+            }]}>
+              <Ionicons 
+                name={item.payment_status === 'paid' ? 'checkmark-circle' : 'time'} 
+                size={14} 
+                color={colors.primaryBlack} 
+              />
+              <Text style={styles.paymentText}>
+                {item.payment_status === 'paid' ? 'Paid' : 'Unpaid'}
+              </Text>
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -195,7 +235,6 @@ const styles = StyleSheet.create({
   orderCard: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,
-    padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.mediumGray,
@@ -204,6 +243,49 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    overflow: 'hidden',
+  },
+  orderCardContent: {
+    padding: spacing.lg,
+  },
+  cafeInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.mediumGray,
+  },
+  cafeLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    marginRight: spacing.sm,
+    backgroundColor: colors.lightGray,
+  },
+  cafeLogoPlaceholder: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    marginRight: spacing.sm,
+    backgroundColor: colors.lightGray,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cafeInfo: {
+    flex: 1,
+  },
+  cafeName: {
+    ...typography.body,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  cafeAddress: {
+    ...typography.small,
+    color: colors.textSecondary,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   orderHeader: {
     flexDirection: 'row',
@@ -211,20 +293,24 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: spacing.sm,
   },
+  orderHeaderLeft: {
+    flex: 1,
+  },
   orderId: {
     ...typography.body,
     fontWeight: '600',
-    color: colors.primaryWhite,
+    color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
   orderDate: {
     ...typography.small,
-    color: colors.textGray,
+    color: colors.textSecondary,
   },
   statusBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: 4,
+    borderRadius: 6,
+    marginLeft: spacing.sm,
   },
   statusText: {
     ...typography.small,
@@ -232,17 +318,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 10,
   },
-  orderInfo: {
+  orderTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: spacing.sm,
-  },
-  cafeName: {
-    ...typography.body,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
   },
   orderType: {
     ...typography.caption,
-    color: colors.textGray,
+    color: colors.textSecondary,
+    marginLeft: spacing.xs,
   },
   orderFooter: {
     flexDirection: 'row',
@@ -251,7 +335,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingTop: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.borderGray,
+    borderTopColor: colors.mediumGray,
+  },
+  totalLabel: {
+    ...typography.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
   },
   orderTotal: {
     ...typography.h3,
@@ -259,9 +348,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   paymentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: 4,
+    borderRadius: 6,
+    gap: spacing.xs,
   },
   paymentText: {
     ...typography.small,

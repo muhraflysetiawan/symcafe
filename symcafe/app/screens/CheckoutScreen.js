@@ -14,6 +14,7 @@ import { formatCurrency } from '../utils/currency';
 import { colors, spacing, typography } from '../constants/theme';
 import { storage } from '../utils/storage';
 import { useAuth } from '../context/AuthContext';
+import BottomNav from '../components/BottomNav';
 
 export default function CheckoutScreen({ route, navigation }) {
   const { cafe, cart, subtotal, tax, total, taxPercentage } = route.params;
@@ -62,8 +63,22 @@ export default function CheckoutScreen({ route, navigation }) {
       console.log('[CheckoutScreen] Order response:', response);
       
       if (response && response.success) {
-        // Clear cart
-        await storage.removeItem('cart');
+        // Clear only the current cafe's cart, preserve other cafes' carts
+        try {
+          const allCarts = await storage.getItem('cart') || [];
+          // Remove only items from the current cafe
+          // Keep items that have a different cafe_id (preserve other cafes' carts)
+          const otherCafeCarts = allCarts.filter(item => {
+            return item.cafe_id && item.cafe_id !== cafe.cafe_id;
+          });
+          await storage.setItem('cart', otherCafeCarts);
+          console.log('[CheckoutScreen] Cleared cart for cafe:', cafe.cafe_id);
+          console.log('[CheckoutScreen] Preserved carts from other cafes:', otherCafeCarts.length, 'items');
+        } catch (error) {
+          console.error('[CheckoutScreen] Error clearing cart:', error);
+          // Fallback: clear all if error occurs
+          await storage.removeItem('cart');
+        }
         
         Alert.alert(
           'Success',
@@ -103,7 +118,8 @@ export default function CheckoutScreen({ route, navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <View style={styles.container}>
+    <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
       {/* Order Summary */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Order Summary</Text>
@@ -214,19 +230,24 @@ export default function CheckoutScreen({ route, navigation }) {
         />
       </View>
 
-      {/* Place Order Button */}
-      <TouchableOpacity
-        style={[styles.placeOrderButton, isSubmitting && styles.buttonDisabled]}
-        onPress={handlePlaceOrder}
-        disabled={isSubmitting}
-      >
-        {isSubmitting ? (
-          <ActivityIndicator color={colors.primaryBlack} />
-        ) : (
-          <Text style={styles.placeOrderButtonText}>Place Order</Text>
-        )}
-      </TouchableOpacity>
     </ScrollView>
+    
+    {/* Place Order Button - Fixed above bottom nav */}
+    <TouchableOpacity
+      style={[styles.placeOrderButton, isSubmitting && styles.buttonDisabled]}
+      onPress={handlePlaceOrder}
+      disabled={isSubmitting}
+    >
+      {isSubmitting ? (
+        <ActivityIndicator color={colors.primaryWhite} />
+      ) : (
+        <Text style={styles.placeOrderButtonText}>Place Order</Text>
+      )}
+    </TouchableOpacity>
+    
+    {/* Bottom Navigation */}
+    <BottomNav />
+    </View>
   );
 }
 
@@ -235,8 +256,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  scrollView: {
+    flex: 1,
+  },
   content: {
     padding: spacing.md,
+    paddingBottom: 160, // Extra padding for button (80px) + bottom nav (60px) + spacing (20px)
   },
   section: {
     backgroundColor: colors.cardBackground,
@@ -362,19 +387,27 @@ const styles = StyleSheet.create({
     minHeight: 100,
   },
   placeOrderButton: {
-    backgroundColor: colors.primaryWhite,
+    position: 'absolute',
+    bottom: 80, // Position above bottom nav (60px height + 20px spacing)
+    left: spacing.md,
+    right: spacing.md,
+    backgroundColor: colors.primaryBrown,
     padding: spacing.md,
-    borderRadius: 5,
+    borderRadius: 8,
     alignItems: 'center',
-    marginTop: spacing.md,
-    marginBottom: spacing.xl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 10,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   placeOrderButtonText: {
-    color: colors.primaryBlack,
-    fontWeight: '600',
+    color: colors.primaryWhite,
+    fontWeight: '700',
     fontSize: 16,
   },
 });

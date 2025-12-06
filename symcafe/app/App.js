@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from './constants/theme';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -29,9 +30,20 @@ function HomeTabs() {
         tabBarStyle: {
           backgroundColor: colors.primaryBlack,
           borderTopColor: colors.borderGray,
+          borderTopWidth: 1,
+          height: 60,
+          paddingBottom: 8,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: colors.primaryWhite,
         tabBarInactiveTintColor: colors.textGray,
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+        },
+        tabBarIconStyle: {
+          marginTop: 4,
+        },
       }}
     >
       <Tab.Screen 
@@ -39,6 +51,9 @@ function HomeTabs() {
         component={StoreSelectionScreen}
         options={{
           title: 'Stores',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="storefront" size={size} color={color} />
+          ),
         }}
       />
       <Tab.Screen 
@@ -46,6 +61,9 @@ function HomeTabs() {
         component={OrdersScreen}
         options={{
           title: 'My Orders',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="receipt" size={size} color={color} />
+          ),
         }}
       />
     </Tab.Navigator>

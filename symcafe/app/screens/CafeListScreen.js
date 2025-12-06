@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { cafeService } from '../services/cafeService';
 import { colors, spacing, typography } from '../constants/theme';
 import { BASE_URL } from '../config/api';
+import BottomNav from '../components/BottomNav';
 
 export default function CafeListScreen({ route, navigation }) {
   const { searchQuery: initialSearchQuery = '' } = route.params || {};
@@ -133,6 +134,9 @@ export default function CafeListScreen({ route, navigation }) {
           }
         />
       )}
+      
+      {/* Bottom Navigation */}
+      <BottomNav />
     </View>
   );
 }
